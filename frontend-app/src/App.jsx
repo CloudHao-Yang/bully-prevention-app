@@ -1,0 +1,944 @@
+import React, { useState, useRef, useEffect } from 'react';
+import { 
+  Send, User, Bot, RotateCcw, Star, Heart, Sparkles, 
+  ChevronRight, Home, Edit3, BookOpen, Plus, Trash2,
+  ArrowLeft, Save, Wand2, Settings, Eye, Copy, ChevronDown
+} from 'lucide-react';
+import { chatWithMiniMax } from './api';
+import { scenarioStorage, saveUserStory } from './storage';
+import { generateScenarioFromStory, generateScenarioSummary } from './scenarioGenerator';
+
+const ENCOURAGEMENT_MESSAGES = [
+  '太棒了！💪', '你做得很好！✨', '继续加油！🌟', '你的选择很有勇气！💖', '真了不起！🏆',
+];
+
+// ===== 视图类型 =====
+const VIEW = {
+  HOME: 'home',
+  STORY_INPUT: 'story-input',
+  SCENARIO_LIBRARY: 'scenario-library',
+  SCENARIO_EDITOR: 'scenario-editor',
+  SCENARIO_PREVIEW: 'scenario-preview',
+  ROLE_SELECT: 'role-select',
+  CHAT: 'chat',
+  REVIEW_LOADING: 'review-loading',
+  REVIEW: 'review',
+};
+
+// ===== 复用组件 =====
+function Confetti() {
+  return (
+    <div style={styles.confettiContainer}>
+      {[...Array(20)].map((_, i) => (
+        <div
+          key={i}
+          style={{
+            ...styles.confettiPiece,
+            left: `${Math.random() * 100}%`,
+            animationDelay: `${Math.random() * 0.5}s`,
+            backgroundColor: ['#FFB366', '#E8A0A0', '#7ECEC1', '#F5D98A', '#B8A9D4'][Math.floor(Math.random() * 5)],
+          }}
+        />
+      ))}
+    </div>
+  );
+}
+
+function TypingIndicator({ color }) {
+  return (
+    <div style={{ ...styles.messageRow, justifyContent: 'flex-start' }}>
+      <div style={{ ...styles.npcAvatar, backgroundColor: color || '#FFB366' }}>
+        <Bot size={16} color="#fff" />
+      </div>
+      <div style={styles.typingBubble}>
+        <span style={{ ...styles.typingDot, animationDelay: '0s' }}>●</span>
+        <span style={{ ...styles.typingDot, animationDelay: '0.2s' }}>●</span>
+        <span style={{ ...styles.typingDot, animationDelay: '0.4s' }}>●</span>
+      </div>
+    </div>
+  );
+}
+
+function ProgressStars({ current, total, color }) {
+  return (
+    <div style={styles.progressStars}>
+      {[...Array(total)].map((_, i) => (
+        <Star key={i} size={20} fill={i < current ? color : '#E5E5EA'} color={i < current ? color : '#E5E5EA'} />
+      ))}
+    </div>
+  );
+}
+
+function Button({ children, onClick, variant = 'primary', size = 'medium', icon, disabled, style }) {
+  const baseStyle = {
+    display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+    borderRadius: 16, fontWeight: 600, cursor: disabled ? 'not-allowed' : 'pointer',
+    transition: 'all 0.2s',
+    opacity: disabled ? 0.6 : 1,
+    ...(size === 'large' && { padding: '18px 32px', fontSize: 18 }),
+    ...(size === 'medium' && { padding: '14px 24px', fontSize: 16 }),
+    ...(size === 'small' && { padding: '10px 18px', fontSize: 14 }),
+    ...(variant === 'primary' && { backgroundColor: '#FFB366', color: '#fff', border: 'none' }),
+    ...(variant === 'secondary' && { backgroundColor: '#fff', color: '#333', border: '2px solid #E5E5EA' }),
+    ...(variant === 'ghost' && { backgroundColor: 'transparent', color: '#666', border: 'none' }),
+    ...style,
+  };
+  return (
+    <button style={baseStyle} onClick={onClick} disabled={disabled}>
+      {icon} {children}
+    </button>
+  );
+}
+
+function Card({ children, style, onClick }) {
+  return (
+    <div 
+      style={{ 
+        backgroundColor: '#fff', borderRadius: 20, padding: 24,
+        boxShadow: '0 4px 16px rgba(0,0,0,0.08)', 
+        cursor: onClick ? 'pointer' : 'default',
+        transition: 'all 0.2s',
+        ...style 
+      }}
+      onClick={onClick}
+    >
+      {children}
+    </div>
+  );
+}
+
+// ===== 主组件 =====
+export default function App() {
+  const [view, setView] = useState(VIEW.HOME);
+  const [currentScenario, setCurrentScenario] = useState(null);
+  const [selectedRoleId, setSelectedRoleId] = useState(null);
+  const [messages, setMessages] = useState([]);
+  const [inputValue, setInputValue] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
+  const [round, setRound] = useState(0);
+  const [reviewContent, setReviewContent] = useState('');
+  const [npcReplies, setNpcReplies] = useState([]);
+  const [victimReaction, setVictimReaction] = useState('');
+  const [apiError, setApiError] = useState('');
+  const [showEncouragement, setShowEncouragement] = useState(false);
+  const messagesEndRef = useRef(null);
+  const MAX_ROUNDS = 4;
+
+  const config = currentScenario ? getCharacterConfig(currentScenario, selectedRoleId) : {};
+  const roleColor = config.color || '#B8A9D4';
+
+  const scrollToBottom = () => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  };
+
+  useEffect(() => {
+    scrollToBottom();
+  }, [messages, npcReplies, victimReaction]);
+
+  // 获取角色配置
+  function getCharacterConfig(scenario, roleId) {
+    if (!scenario) return {};
+    
+    const roleMap = {
+      victim: { ...scenario.characters?.find(c => c.id === 'victim'), narrator: scenario.victimNarrator, scene: scenario.victimScene, userIs: scenario.characters?.find(c => c.id === 'victim')?.name || '小明' },
+      bystander: { ...scenario.characters?.find(c => c.id === 'bully'), narrator: scenario.bystanderNarrator, scene: scenario.bystanderScene, userIs: '小亮' },
+      accomplice: { ...scenario.characters?.find(c => c.id === 'bully'), narrator: scenario.accompliceNarrator, scene: scenario.accompliceScene, userIs: '小强' },
+      observer: { ...scenario.characters?.find(c => c.id === 'bully'), narrator: scenario.observerNarrator, scene: scenario.observerScene, userIs: '观察者' },
+    };
+    
+    return roleMap[roleId] || {};
+  }
+
+  // 开始角色扮演
+  const startPractice = (scenario, roleId) => {
+    setCurrentScenario(scenario);
+    setSelectedRoleId(roleId);
+    const charConfig = getCharacterConfig(scenario, roleId);
+    setMessages([
+      { id: 1, role: 'narrator', content: charConfig.narrator || '' },
+      { id: 2, role: 'scene', content: charConfig.scene || '' },
+    ]);
+    setNpcReplies([]);
+    setVictimReaction('');
+    setRound(0);
+    setView(VIEW.CHAT);
+  };
+
+  // 发送消息
+  const handleSend = async () => {
+    if (!inputValue.trim() || isLoading) return;
+
+    const userMsg = { id: Date.now(), role: 'user', content: inputValue.trim(), character: config.userIs };
+    const newMessages = [...messages, userMsg];
+    setMessages(newMessages);
+    setInputValue('');
+    setIsLoading(true);
+    setNpcReplies([]);
+    setVictimReaction('');
+    setApiError('');
+    setShowEncouragement(false);
+
+    try {
+      const historyText = newMessages
+        .filter(m => m.role !== 'scene' && m.role !== 'narrator')
+        .map(m => `${m.character}：${m.content}`)
+        .join('\n');
+
+      const bullyReply = await chatWithMiniMax(
+        [{ role: 'user', content: `对话历史：\n${historyText}\n\n请以小刚的身份回应。` }],
+        currentScenario.characters?.find(c => c.id === 'bully')?.systemPrompt || BULLY_PROMPT
+      );
+
+      const victimReact = await chatWithMiniMax(
+        [{ role: 'user', content: `小刚刚说了：${bullyReply}\n\n请描述小明的反应。` }],
+        VICTIM_SILENT_PROMPT
+      );
+
+      setNpcReplies([{ id: Date.now() + 1, character: '小刚', text: bullyReply?.trim() || '...' }]);
+      setVictimReaction(victimReact?.trim() || '');
+
+      const nextRound = round + 1;
+      setRound(nextRound);
+      setShowEncouragement(true);
+      setTimeout(() => setShowEncouragement(false), 2000);
+
+      if (nextRound >= (currentScenario.maxRounds || MAX_ROUNDS)) {
+        setTimeout(() => generateReview(newMessages), 2500);
+      }
+    } catch (error) {
+      setApiError('网络好像有点累了，休息一下再试吧 💪');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // 生成复盘
+  const generateReview = async (chatMessages) => {
+    setView(VIEW.REVIEW_LOADING);
+    const historyText = chatMessages
+      .filter(m => m.role !== 'scene' && m.role !== 'narrator')
+      .map(m => `${m.character}：${m.content}`)
+      .join('\n');
+
+    try {
+      const review = await chatWithMiniMax(
+        [{ role: 'user', content: `角色扮演记录：\n${historyText}\n\n请写一份温暖有趣的复盘报告。` }],
+        currentScenario?.reviewPrompt || REVIEW_SYSTEM_PROMPT
+      );
+      setReviewContent(review || '你完成了一次很棒的演练！继续加油！✨');
+    } catch {
+      setReviewContent('你完成了一次很棒的演练！继续加油！✨');
+    } finally {
+      setView(VIEW.REVIEW);
+    }
+  };
+
+  const replay = () => { if (currentScenario && selectedRoleId) startPractice(currentScenario, selectedRoleId); };
+  const goHome = () => {
+    setView(VIEW.HOME);
+    setCurrentScenario(null);
+    setSelectedRoleId(null);
+  };
+
+  // ===== 视图一：首页 =====
+  if (view === VIEW.HOME) {
+    return <HomeView setView={setView} />;
+  }
+
+  // ===== 视图二：讲述故事 =====
+  if (view === VIEW.STORY_INPUT) {
+    return <StoryInputView setView={setView} />;
+  }
+
+  // ===== 视图三：场景库 =====
+  if (view === VIEW.SCENARIO_LIBRARY) {
+    return <ScenarioLibraryView setView={setView} onSelectScenario={(s) => { setCurrentScenario(s); setView(VIEW.ROLE_SELECT); }} />;
+  }
+
+  // ===== 视图四：场景编辑器 =====
+  if (view === VIEW.SCENARIO_EDITOR) {
+    return <ScenarioEditorView setView={setView} scenario={currentScenario} onSave={(s) => { setCurrentScenario(s); setView(VIEW.ROLE_SELECT); }} />;
+  }
+
+  // ===== 视图五：场景预览 =====
+  if (view === VIEW.SCENARIO_PREVIEW) {
+    return <ScenarioPreviewView setView={setView} scenario={currentScenario} onEdit={() => setView(VIEW.SCENARIO_EDITOR)} onStart={(roleId) => startPractice(currentScenario, roleId)} />;
+  }
+
+  // ===== 视图六：角色选择 =====
+  if (view === VIEW.ROLE_SELECT) {
+    return (
+      <div style={styles.selectContainer}>
+        <style>{`@keyframes floatIn { from { opacity:0; transform:translateY(30px); } to { opacity:1; transform:translateY(0); } }`}</style>
+        
+        <div style={styles.selectHeader}>
+          <button style={{ ...styles.backBtn, marginBottom: 16 }} onClick={goHome}>
+            <ArrowLeft size={20} /> 返回首页
+          </button>
+          <div style={styles.logoContainer}><Sparkles size={40} color="#FFB366" /></div>
+          <h1 style={styles.selectTitle}>{currentScenario?.title || '选择你的角色'}</h1>
+          <p style={styles.selectSubtitle}>🌈 每个角色都会带你看到不同的故事</p>
+        </div>
+        
+        <div style={styles.roleGrid}>
+          {[
+            { id: 'victim', emoji: '🛡️', title: '被针对的同学', subtitle: currentScenario?.characters?.find(c => c.id === 'victim')?.name || '小明', description: '经历被欺负的感受，练习如何回应' },
+            { id: 'bystander', emoji: '💚', title: '关心同学的朋友', subtitle: '小亮', description: '作为旁观者，练习如何帮助和支持' },
+            { id: 'accomplice', emoji: '⚡', title: '跟着起哄的同学', subtitle: '小强', description: '体验跟风者的心理，理解旁观者效应' },
+            { id: 'observer', emoji: '👁️', title: '静静观察的你', subtitle: '观察者', description: '客观看待整个事件，理解欺凌的完整链条' },
+          ].map((role, i) => (
+            <button
+              key={role.id}
+              onClick={() => startPractice(currentScenario, role.id)}
+              style={{
+                ...styles.roleCard,
+                background: `linear-gradient(135deg, #FFF${i * 3}FF 0%, #FFE${i * 3}E4 100%)`,
+                borderColor: ['#E8A0A0', '#7ECEC1', '#F5D98A', '#B8A9D4'][i],
+                animation: `floatIn 0.5s ease-out ${i * 0.12}s both`,
+              }}
+            >
+              <div style={{ fontSize: 48, marginBottom: 12 }}>{role.emoji}</div>
+              <h3 style={{ fontSize: 18, fontWeight: 700, color: ['#E8A0A0', '#7ECEC1', '#F5D98A', '#B8A9D4'][i], margin: '0 0 4px 0' }}>{role.title}</h3>
+              <p style={{ fontSize: 14, color: '#888', margin: '0 0 8px 0' }}>{role.subtitle}</p>
+              <p style={{ fontSize: 14, color: '#666', lineHeight: 1.6, margin: 0 }}>{role.description}</p>
+              <div style={{ marginTop: 16, color: ['#E8A0A0', '#7ECEC1', '#F5D98A', '#B8A9D4'][i], fontSize: 14, fontWeight: 600 }}>点击开始 <ChevronRight size={16} /></div>
+            </button>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  // ===== 视图七：聊天演练 =====
+  if (view === VIEW.CHAT) {
+    return (
+      <div style={styles.container}>
+        <div style={styles.chatHeader}>
+          <div style={styles.chatHeaderLeft}>
+            <button style={styles.backBtnSmall} onClick={() => setView(VIEW.ROLE_SELECT)}><ArrowLeft size={18} /></button>
+            <div style={{ ...styles.roleTag, backgroundColor: roleColor }}>{config.userIs}</div>
+            <ProgressStars current={round} total={currentScenario?.maxRounds || MAX_ROUNDS} color={roleColor} />
+          </div>
+          <button style={{ ...styles.endButton, color: roleColor }} onClick={() => generateReview(messages)}>结束演练</button>
+        </div>
+
+        <div style={styles.chatBox}>
+          {messages.map((msg) => (
+            <div key={msg.id} style={{ ...styles.messageRow, justifyContent: msg.role === 'user' ? 'flex-end' : 'flex-start' }}>
+              {msg.role === 'narrator' && <div style={styles.narratorBubble}><Sparkles size={14} color="#B8A9D4" style={{ marginRight: 6 }} />{msg.content}</div>}
+              {msg.role === 'scene' && <div style={{ ...styles.sceneBubble, borderColor: `${roleColor}40` }}>{msg.content}</div>}
+              {msg.role === 'user' && (
+                <>
+                  <div style={{ ...styles.avatarUser, backgroundColor: roleColor }}><User size={16} color="#fff" /></div>
+                  <div style={{ ...styles.messageBubble, backgroundColor: roleColor, color: '#fff' }}>{msg.content}</div>
+                </>
+              )}
+            </div>
+          ))}
+
+          {npcReplies.map((reply) => (
+            <div key={reply.id} style={{ ...styles.messageRow, justifyContent: 'flex-start' }}>
+              <div style={{ ...styles.npcAvatar, backgroundColor: '#FFB366' }}><Bot size={16} color="#fff" /></div>
+              <div>
+                <div style={styles.npcName}>{reply.character}</div>
+                <div style={styles.npcBubble}>{reply.text}</div>
+              </div>
+            </div>
+          ))}
+
+          {victimReaction && (
+            <div style={{ ...styles.victimReaction, borderColor: `${roleColor}60` }}>
+              <div style={{ ...styles.victimLabel, color: roleColor }}>👀 小明的反应</div>
+              <div style={styles.victimText}>{victimReaction}</div>
+            </div>
+          )}
+
+          {isLoading && <TypingIndicator color={roleColor} />}
+          {showEncouragement && round > 0 && <div style={styles.encouragement}>{ENCOURAGEMENT_MESSAGES[round - 1] || '你做得很好！✨'}</div>}
+          {apiError && <div style={{ ...styles.errorBox, borderColor: `${roleColor}60` }}><span style={{ fontSize: 14, color: roleColor }}>{apiError}</span></div>}
+          <div ref={messagesEndRef} />
+        </div>
+
+        <div style={styles.inputArea}>
+          <div style={{ ...styles.tipBox, backgroundColor: `${roleColor}15`, borderColor: `${roleColor}30` }}>
+            <span style={{ fontSize: 13, color: '#666' }}>💬 你会怎么做？</span>
+          </div>
+          <div style={styles.inputContainer}>
+            <input type="text" style={{ ...styles.input, borderColor: `${roleColor}40` }} placeholder={`以"${config.userIs}"的身份说...`} value={inputValue} onChange={(e) => setInputValue(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleSend(); } }} disabled={isLoading} />
+            <button style={{ ...styles.sendButton, backgroundColor: inputValue.trim() && !isLoading ? roleColor : '#E5E5EA', transform: inputValue.trim() ? 'scale(1.05)' : 'scale(1)' }} onClick={handleSend} disabled={!inputValue.trim() || isLoading}><Send size={20} color="#fff" /></button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ===== 视图八：复盘加载中 =====
+  if (view === VIEW.REVIEW_LOADING) {
+    return (
+      <div style={styles.reviewLoadingContainer}>
+        <Confetti />
+        <div style={styles.loadingCharacter}><Sparkles size={60} color="#B8A9D4" /></div>
+        <div style={styles.loadingSpinner} />
+        <p style={styles.loadingText}>✨ 心理老师正在整理你的精彩表现...</p>
+        <p style={styles.loadingHint}>你真的很棒！🌟</p>
+      </div>
+    );
+  }
+
+  // ===== 视图九：复盘报告 =====
+  if (view === VIEW.REVIEW) {
+    return (
+      <div style={styles.reviewContainer}>
+        <Confetti />
+        <div style={styles.reviewHeader}>
+          <div style={styles.completionBadge}><Star size={24} fill="#FFD700" color="#FFD700" /></div>
+          <span style={{ ...styles.reviewBadge, backgroundColor: roleColor }}>✨ 复盘报告</span>
+          <h2 style={styles.reviewTitle}>「{config.userIs}」演练完成</h2>
+          <p style={styles.reviewSubtitle}>🌈 你的每一次选择都很重要！</p>
+        </div>
+        <div style={{ ...styles.reviewCard, borderColor: `${roleColor}40` }}>
+          <div style={styles.reviewIcon}><Heart size={32} color={roleColor} /></div>
+          <p style={styles.reviewContent}>{reviewContent}</p>
+        </div>
+        <div style={styles.reviewActions}>
+          <button style={{ ...styles.replayButton, backgroundColor: roleColor }} onClick={replay}><RotateCcw size={18} /> 再来一次</button>
+          <button style={{ ...styles.backButton, borderColor: roleColor, color: roleColor }} onClick={goHome}><Home size={18} /> 返回首页</button>
+        </div>
+        <div style={styles.reviewFooter}>💖 记住：你永远不是一个人</div>
+      </div>
+    );
+  }
+
+  return null;
+}
+
+// ===== 子视图：首页 =====
+function HomeView({ setView }) {
+  return (
+    <div style={styles.selectContainer}>
+      <style>{`
+        @keyframes floatIn { from { opacity:0; transform:translateY(30px); } to { opacity:1; transform:translateY(0); } }
+        @keyframes pulse { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.05); } }
+      `}</style>
+      
+      <div style={styles.selectHeader}>
+        <div style={styles.logoContainer}><Sparkles size={40} color="#FFB366" /></div>
+        <h1 style={styles.selectTitle}>《别想欺负我》</h1>
+        <p style={styles.selectSubtitle}>🌈 选择你的方式，开启学习之旅</p>
+      </div>
+
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 20, maxWidth: 600, margin: '0 auto' }}>
+        {/* 我来描述 */}
+        <div style={{ ...styles.entryCard, borderColor: '#FFB366', animation: 'floatIn 0.5s ease-out 0.1s both' }} onClick={() => setView(VIEW.STORY_INPUT)}>
+          <div style={{ ...styles.entryIcon, backgroundColor: '#FFF8F0' }}>
+            <Wand2 size={32} color="#FFB366" />
+          </div>
+          <div style={styles.entryContent}>
+            <h3 style={{ ...styles.entryTitle, color: '#FFB366' }}>✨ 我来描述</h3>
+            <p style={styles.entryDesc}>讲述你自己的故事，AI为你生成专属剧本</p>
+          </div>
+          <ChevronRight size={24} color="#FFB366" />
+        </div>
+
+        {/* 场景库 */}
+        <div style={{ ...styles.entryCard, borderColor: '#7ECEC1', animation: 'floatIn 0.5s ease-out 0.2s both' }} onClick={() => setView(VIEW.SCENARIO_LIBRARY)}>
+          <div style={{ ...styles.entryIcon, backgroundColor: '#F0FFFE' }}>
+            <BookOpen size={32} color="#7ECEC1" />
+          </div>
+          <div style={styles.entryContent}>
+            <h3 style={{ ...styles.entryTitle, color: '#7ECEC1' }}>📚 场景库</h3>
+            <p style={styles.entryDesc}>选择预设场景或管理你创建的剧本</p>
+          </div>
+          <ChevronRight size={24} color="#7ECEC1" />
+        </div>
+
+        {/* 快速开始 */}
+        <div style={{ ...styles.entryCard, borderColor: '#B8A9D4', animation: 'floatIn 0.5s ease-out 0.3s both' }} onClick={() => { const s = scenarioStorage.getDefaultScenarios()[0]; if (s) { setCurrentScenarioHome(s); setView(VIEW.ROLE_SELECT); } }}>
+          <div style={{ ...styles.entryIcon, backgroundColor: '#F8F5FF' }}>
+            <Zap size={32} color="#B8A9D4" />
+          </div>
+          <div style={styles.entryContent}>
+            <h3 style={{ ...styles.entryTitle, color: '#B8A9D4' }}>⚡ 快速开始</h3>
+            <p style={styles.entryDesc}>直接进入"被起外号"场景体验</p>
+          </div>
+          <ChevronRight size={24} color="#B8A9D4" />
+        </div>
+      </div>
+
+      <div style={styles.footerTip}>💡 提示：尝试不同的方式，会看到不同的学习体验！</div>
+    </div>
+  );
+}
+
+// ===== 子视图：讲述故事 =====
+function StoryInputView({ setView }) {
+  const [story, setStory] = useState('');
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [generatedScenario, setGeneratedScenario] = useState(null);
+  const [error, setError] = useState('');
+
+  const handleGenerate = async () => {
+    if (!story.trim()) {
+      setError('请先讲述你的故事');
+      return;
+    }
+    setIsGenerating(true);
+    setError('');
+    try {
+      saveUserStory(story);
+      const scenario = await generateScenarioFromStory(story);
+      setGeneratedScenario(scenario);
+      setView(VIEW.SCENARIO_PREVIEW);
+    } catch (e) {
+      setError(e.message || '生成失败，请重试');
+    } finally {
+      setIsGenerating(false);
+    }
+  };
+
+  return (
+    <div style={styles.selectContainer}>
+      <button style={{ ...styles.backBtn, marginBottom: 16 }} onClick={() => setView(VIEW.HOME)}>
+        <ArrowLeft size={20} /> 返回首页
+      </button>
+
+      <div style={styles.selectHeader}>
+        <div style={{ ...styles.logoContainer, backgroundColor: '#FFF8F0' }}><Wand2 size={40} color="#FFB366" /></div>
+        <h1 style={styles.selectTitle}>讲述你的故事</h1>
+        <p style={styles.selectSubtitle}>✨ 告诉我们你遇到过的事情，我们会为你生成专属剧本</p>
+      </div>
+
+      <div style={{ maxWidth: 600, margin: '0 auto' }}>
+        <Card>
+          <h3 style={{ fontSize: 16, fontWeight: 600, marginBottom: 12, color: '#333' }}>📝 你的故事</h3>
+          <textarea
+            style={styles.storyInput}
+            placeholder={`在这里描述你遇到过的事情，比如：\n\n• 有人给你起了难听的外号\n• 被同学排挤或孤立\n• 被威胁或恐吓\n• 被抢东西或被打\n• 其他让你不舒服的事情\n\n不用担心说得不好，我们只是想了解情况。`}
+            value={story}
+            onChange={(e) => setStory(e.target.value)}
+          />
+          {error && <p style={{ color: '#FF6B6B', fontSize: 14, marginTop: 8 }}>{error}</p>}
+          
+          <div style={{ marginTop: 20, display: 'flex', gap: 12 }}>
+            <Button onClick={handleGenerate} disabled={isGenerating || !story.trim()} icon={<Wand2 size={18} />}>
+              {isGenerating ? '生成中...' : '✨ 生成剧本'}
+            </Button>
+            <Button variant="secondary" onClick={() => setView(VIEW.HOME)}>取消</Button>
+          </div>
+        </Card>
+
+        <div style={{ marginTop: 24, padding: '16px 20px', backgroundColor: '#FFF8F0', borderRadius: 16 }}>
+          <p style={{ fontSize: 14, color: '#666', lineHeight: 1.7, margin: 0 }}>
+            💡 <strong>为什么要讲述故事？</strong><br />
+            每个人的经历都是独特的。通过描述你自己的故事，AI会生成一个更贴近你实际情况的演练场景，帮助你更好地学习和准备。
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ===== 子视图：场景库 =====
+function ScenarioLibraryView({ setView, onSelectScenario }) {
+  const [scenarios, setScenarios] = useState(scenarioStorage.getAll());
+  const [activeTab, setActiveTab] = useState('all');
+
+  const userScenarios = scenarios.filter(s => !s.isDefault);
+  const defaultScenarios = scenarios.filter(s => s.isDefault);
+  const displayedScenarios = activeTab === 'all' ? scenarios : activeTab === 'user' ? userScenarios : defaultScenarios;
+
+  const handleDelete = (id) => {
+    if (scenarioStorage.delete(id)) {
+      setScenarios(scenarioStorage.getAll());
+    }
+  };
+
+  return (
+    <div style={styles.selectContainer}>
+      <button style={{ ...styles.backBtn, marginBottom: 16 }} onClick={() => setView(VIEW.HOME)}>
+        <ArrowLeft size={20} /> 返回首页
+      </button>
+
+      <div style={styles.selectHeader}>
+        <div style={{ ...styles.logoContainer, backgroundColor: '#F0FFFE' }}><BookOpen size={40} color="#7ECEC1" /></div>
+        <h1 style={styles.selectTitle}>场景库</h1>
+        <p style={styles.selectSubtitle}>选择场景开始演练，或创建你自己的剧本</p>
+      </div>
+
+      <div style={{ maxWidth: 800, margin: '0 auto' }}>
+        {/* 标签页 */}
+        <div style={styles.tabs}>
+          <button style={{ ...styles.tab, ...(activeTab === 'all' ? styles.tabActive : {}) }} onClick={() => setActiveTab('all')}>全部</button>
+          <button style={{ ...styles.tab, ...(activeTab === 'user' ? styles.tabActive : {}) }} onClick={() => setActiveTab('user')}>我的创作</button>
+          <button style={{ ...styles.tab, ...(activeTab === 'default' ? styles.tabActive : {}) }} onClick={() => setActiveTab('default')}>预设场景</button>
+        </div>
+
+        {/* 场景列表 */}
+        <div style={styles.scenarioList}>
+          {displayedScenarios.length === 0 ? (
+            <Card style={{ textAlign: 'center', padding: 40 }}>
+              <p style={{ color: '#999', fontSize: 16 }}>还没有创建任何场景</p>
+              <Button style={{ marginTop: 16 }} onClick={() => setView(VIEW.SCENARIO_EDITOR)} icon={<Plus size={18} />}>创建第一个场景</Button>
+            </Card>
+          ) : (
+            displayedScenarios.map((scenario, i) => (
+              <div key={scenario.id} style={{ ...styles.scenarioItem, animation: `floatIn 0.3s ease-out ${i * 0.05}s both` }}>
+                <div style={styles.scenarioInfo} onClick={() => onSelectScenario(scenario)}>
+                  <div style={styles.scenarioHeader}>
+                    <h3 style={styles.scenarioTitle}>{scenario.title}</h3>
+                    {scenario.isDefault && <span style={styles.defaultBadge}>预设</span>}
+                  </div>
+                  <p style={styles.scenarioDesc}>{scenario.description}</p>
+                  <div style={styles.scenarioMeta}>
+                    <span>👥 {scenario.characters?.length || 0}个角色</span>
+                    <span>🔄 {scenario.maxRounds || 4}轮对话</span>
+                  </div>
+                </div>
+                <div style={styles.scenarioActions}>
+                  <button style={styles.actionBtn} onClick={() => onSelectScenario(scenario)} title="开始演练"><Play size={18} color="#7ECEC1" /></button>
+                  {!scenario.isDefault && (
+                    <>
+                      <button style={styles.actionBtn} onClick={() => { setCurrentScenarioEditor(scenario); setView(VIEW.SCENARIO_EDITOR); }} title="编辑"><Edit3 size={18} color="#FFB366" /></button>
+                      <button style={styles.actionBtn} onClick={() => handleDelete(scenario.id)} title="删除"><Trash2 size={18} color="#FF6B6B" /></button>
+                    </>
+                  )}
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+
+        {/* 创建新场景按钮 */}
+        <div style={{ textAlign: 'center', marginTop: 24 }}>
+          <Button onClick={() => { setCurrentScenarioEditor(null); setView(VIEW.SCENARIO_EDITOR); }} icon={<Plus size={18} />} size="large">
+            创建新场景
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ===== 子视图：场景编辑器 =====
+function ScenarioEditorView({ setView, scenario, onSave }) {
+  const [form, setForm] = useState(scenario || {
+    title: '',
+    description: '',
+    story: '',
+    difficulty: 'medium',
+    characters: [
+      { id: 'victim', name: '小明', role: '被针对的同学', personality: '内向、敏感', emoji: '🛡️', color: '#E8A0A0', systemPrompt: '', avatar: '' },
+      { id: 'bully', name: '小刚', role: '欺负人的同学', personality: '调皮', emoji: '😈', color: '#FFB366', systemPrompt: '', avatar: '' },
+    ],
+    victimNarrator: '你遇到了这种情况...',
+    victimScene: '（这一幕正在发生...）',
+    maxRounds: 4,
+    reviewPrompt: '',
+  });
+  const [mode, setMode] = useState('simple'); // simple or advanced
+  const [saving, setSaving] = useState(false);
+
+  const handleSave = () => {
+    if (!form.title.trim()) {
+      alert('请输入场景标题');
+      return;
+    }
+    setSaving(true);
+    const savedScenario = scenarioStorage.save(form);
+    setSaving(false);
+    onSave(savedScenario);
+  };
+
+  const updateCharacter = (index, field, value) => {
+    const newChars = [...form.characters];
+    newChars[index] = { ...newChars[index], [field]: value };
+    setForm({ ...form, characters: newChars });
+  };
+
+  return (
+    <div style={styles.selectContainer}>
+      <button style={{ ...styles.backBtn, marginBottom: 16 }} onClick={() => setView(VIEW.SCENARIO_LIBRARY)}>
+        <ArrowLeft size={20} /> 返回场景库
+      </button>
+
+      <div style={styles.selectHeader}>
+        <div style={{ ...styles.logoContainer, backgroundColor: '#F8F5FF' }}><Edit3 size={40} color="#B8A9D4" /></div>
+        <h1 style={styles.selectTitle}>{scenario ? '编辑场景' : '创建新场景'}</h1>
+      </div>
+
+      <div style={{ maxWidth: 800, margin: '0 auto' }}>
+        {/* 模式切换 */}
+        <div style={styles.modeSwitch}>
+          <button style={{ ...styles.modeBtn, ...(mode === 'simple' ? styles.modeBtnActive : {}) }} onClick={() => setMode('simple')}>简单模式</button>
+          <button style={{ ...styles.modeBtn, ...(mode === 'advanced' ? styles.modeBtnActive : {}) }} onClick={() => setMode('advanced')}>高级模式</button>
+        </div>
+
+        <Card style={{ marginBottom: 20 }}>
+          <h3 style={styles.sectionTitle}>📋 基本信息</h3>
+          <div style={styles.formGroup}>
+            <label style={styles.label}>场景标题</label>
+            <input style={styles.input} value={form.title} onChange={e => setForm({ ...form, title: e.target.value })} placeholder="例如：被起外号" />
+          </div>
+          <div style={styles.formGroup}>
+            <label style={styles.label}>场景描述</label>
+            <input style={styles.input} value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} placeholder="简要描述这个场景" />
+          </div>
+          <div style={styles.formGroup}>
+            <label style={styles.label}>对话轮数</label>
+            <select style={styles.input} value={form.maxRounds} onChange={e => setForm({ ...form, maxRounds: parseInt(e.target.value) })}>
+              <option value={3}>3轮（简短）</option>
+              <option value={4}>4轮（标准）</option>
+              <option value={5}>5轮（较长）</option>
+            </select>
+          </div>
+        </Card>
+
+        <Card style={{ marginBottom: 20 }}>
+          <h3 style={styles.sectionTitle}>👥 角色配置</h3>
+          {form.characters.map((char, i) => (
+            <div key={char.id} style={{ ...styles.characterCard, borderColor: char.color }}>
+              <div style={styles.characterHeader}>
+                <span style={{ fontSize: 24 }}>{char.emoji}</span>
+                <input style={{ ...styles.input, flex: 1, fontWeight: 600 }} value={char.name} onChange={e => updateCharacter(i, 'name', e.target.value)} placeholder="角色名" />
+                <input style={{ ...styles.input, width: 100 }} value={char.role} onChange={e => updateCharacter(i, 'role', e.target.value)} placeholder="角色身份" />
+              </div>
+              <div style={styles.formGroup}>
+                <label style={styles.label}>性格特点</label>
+                <input style={styles.input} value={char.personality} onChange={e => updateCharacter(i, 'personality', e.target.value)} placeholder="例如：内向、敏感" />
+              </div>
+              {mode === 'advanced' && (
+                <div style={styles.formGroup}>
+                  <label style={styles.label}>AI提示词（高级）</label>
+                  <textarea style={{ ...styles.textarea, borderColor: char.color }} value={char.systemPrompt} onChange={e => updateCharacter(i, 'systemPrompt', e.target.value)} placeholder="输入角色扮演的系统提示词..." rows={4} />
+                </div>
+              )}
+            </div>
+          ))}
+        </Card>
+
+        {mode === 'advanced' && (
+          <Card style={{ marginBottom: 20 }}>
+            <h3 style={styles.sectionTitle}>🎭 场景设置</h3>
+            <div style={styles.formGroup}>
+              <label style={styles.label}>被欺负角色 - 开场旁白</label>
+              <textarea style={styles.textarea} value={form.victimNarrator} onChange={e => setForm({ ...form, victimNarrator: e.target.value })} placeholder="作为被欺负角色时的开场旁白" />
+            </div>
+            <div style={styles.formGroup}>
+              <label style={styles.label}>被欺负角色 - 场景描述</label>
+              <textarea style={styles.textarea} value={form.victimScene} onChange={e => setForm({ ...form, victimScene: e.target.value })} placeholder="场景描述" />
+            </div>
+            <div style={styles.formGroup}>
+              <label style={styles.label}>复盘提示词</label>
+              <textarea style={styles.textarea} value={form.reviewPrompt} onChange={e => setForm({ ...form, reviewPrompt: e.target.value })} placeholder="复盘时的AI提示词" />
+            </div>
+          </Card>
+        )}
+
+        <div style={{ display: 'flex', gap: 12, justifyContent: 'center' }}>
+          <Button onClick={handleSave} disabled={saving} icon={<Save size={18} />} size="large">
+            {saving ? '保存中...' : '💾 保存场景'}
+          </Button>
+          <Button variant="secondary" onClick={() => setView(VIEW.SCENARIO_LIBRARY)}>取消</Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ===== 子视图：场景预览 =====
+function ScenarioPreviewView({ setView, scenario, onEdit, onStart }) {
+  if (!scenario) return null;
+
+  return (
+    <div style={styles.selectContainer}>
+      <button style={{ ...styles.backBtn, marginBottom: 16 }} onClick={() => setView(VIEW.STORY_INPUT)}>
+        <ArrowLeft size={20} /> 返回
+      </button>
+
+      <div style={styles.selectHeader}>
+        <div style={styles.completionBadge}><Star size={24} fill="#FFD700" color="#FFD700" /></div>
+        <h1 style={styles.selectTitle}>✨ 剧本已生成</h1>
+        <p style={styles.selectSubtitle}>检查一下剧本是否符合你的预期</p>
+      </div>
+
+      <div style={{ maxWidth: 600, margin: '0 auto' }}>
+        <Card style={{ marginBottom: 20 }}>
+          <h3 style={styles.sectionTitle}>📖 {scenario.title}</h3>
+          <p style={{ color: '#666', fontSize: 15, lineHeight: 1.7 }}>{scenario.description}</p>
+          {scenario.story && (
+            <div style={{ marginTop: 16, padding: 16, backgroundColor: '#FFF8F0', borderRadius: 12 }}>
+              <p style={{ fontSize: 13, color: '#999', marginBottom: 8 }}>原始故事：</p>
+              <p style={{ fontSize: 14, color: '#666', fontStyle: 'italic' }}>{scenario.story}</p>
+            </div>
+          )}
+        </Card>
+
+        <Card style={{ marginBottom: 20 }}>
+          <h3 style={styles.sectionTitle}>👥 角色</h3>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            {scenario.characters?.map((char, i) => (
+              <div key={char.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: 12, backgroundColor: '#FAFAFD', borderRadius: 12 }}>
+                <span style={{ fontSize: 32 }}>{char.emoji}</span>
+                <div>
+                  <p style={{ fontWeight: 600, margin: 0, color: char.color }}>{char.name}</p>
+                  <p style={{ fontSize: 13, color: '#888', margin: 0 }}>{char.personality}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+        </Card>
+
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <Button onClick={() => onStart('victim')} size="large" icon={<Play size={18} />}>
+            🎭 开始演练
+          </Button>
+          <Button variant="secondary" onClick={onEdit} icon={<Edit3 size={18} />}>
+            ✏️ 调整剧本
+          </Button>
+          <Button variant="ghost" onClick={() => { scenarioStorage.save(scenario); setView(VIEW.SCENARIO_LIBRARY); }}>
+            💾 保存到场景库
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// 辅助函数
+function setCurrentScenarioHome(s) { currentScenarioGlobal = s; }
+function setCurrentScenarioEditor(s) { currentScenarioGlobal = s; }
+var currentScenarioGlobal = null;
+
+// ===== 样式 =====
+const styles = {
+  selectContainer: {
+    maxWidth: '800px', margin: '0 auto', minHeight: '100vh',
+    padding: '40px 24px', backgroundColor: '#FAFAFD',
+    fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+  },
+  selectHeader: { textAlign: 'center', marginBottom: 36 },
+  logoContainer: {
+    width: 80, height: 80, borderRadius: 24,
+    backgroundColor: '#FFF8F0',
+    display: 'flex', justifyContent: 'center', alignItems: 'center',
+    margin: '0 auto 16px',
+    boxShadow: '0 8px 24px rgba(255, 179, 102, 0.2)',
+  },
+  selectTitle: { fontSize: 32, fontWeight: 800, color: '#333', margin: '0 0 12px 0' },
+  selectSubtitle: { fontSize: 16, color: '#666', margin: 0 },
+  selectHint: { fontSize: 14, color: '#999', marginTop: 12 },
+  backBtn: { display: 'flex', alignItems: 'center', gap: 8, backgroundColor: 'transparent', border: 'none', color: '#666', fontSize: 15, cursor: 'pointer', padding: '8px 0' },
+  backBtnSmall: { display: 'flex', alignItems: 'center', justifyContent: 'center', width: 36, height: 36, backgroundColor: '#F5F5F8', border: 'none', borderRadius: 12, cursor: 'pointer' },
+  
+  // 入口卡片
+  entryCard: {
+    display: 'flex', alignItems: 'center', gap: 16, padding: 24,
+    backgroundColor: '#fff', borderRadius: 20, border: '3px solid',
+    cursor: 'pointer', transition: 'all 0.2s',
+  },
+  entryIcon: { width: 64, height: 64, borderRadius: 16, display: 'flex', justifyContent: 'center', alignItems: 'center', flexShrink: 0 },
+  entryContent: { flex: 1 },
+  entryTitle: { fontSize: 20, fontWeight: 700, margin: '0 0 4px 0' },
+  entryDesc: { fontSize: 14, color: '#666', margin: 0 },
+  footerTip: { textAlign: 'center', marginTop: 40, fontSize: 14, color: '#999', padding: '16px 24px', backgroundColor: '#F8F8FC', borderRadius: 16 },
+  
+  // 角色卡片
+  roleGrid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 20 },
+  roleCard: {
+    border: '3px solid', borderRadius: 24, padding: 24, textAlign: 'center',
+    cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center',
+  },
+  
+  // 表单
+  formGroup: { marginBottom: 16 },
+  label: { display: 'block', fontSize: 14, fontWeight: 600, color: '#333', marginBottom: 8 },
+  input: { width: '100%', padding: '12px 16px', fontSize: 15, borderRadius: 12, border: '2px solid #E5E5EA', outline: 'none', boxSizing: 'border-box' },
+  textarea: { width: '100%', padding: 12, fontSize: 14, borderRadius: 12, border: '2px solid #E5E5EA', outline: 'none', resize: 'vertical', fontFamily: 'inherit' },
+  storyInput: { width: '100%', minHeight: 200, padding: 16, fontSize: 15, borderRadius: 12, border: '2px solid #E5E5EA', outline: 'none', resize: 'vertical', fontFamily: 'inherit', lineHeight: 1.7 },
+  
+  // 场景库
+  tabs: { display: 'flex', gap: 8, marginBottom: 20, backgroundColor: '#fff', padding: 8, borderRadius: 16 },
+  tab: { flex: 1, padding: '12px 16px', fontSize: 15, fontWeight: 600, backgroundColor: 'transparent', border: 'none', borderRadius: 12, cursor: 'pointer', color: '#666' },
+  tabActive: { backgroundColor: '#FFB366', color: '#fff' },
+  scenarioList: { display: 'flex', flexDirection: 'column', gap: 12 },
+  scenarioItem: { display: 'flex', alignItems: 'center', gap: 16, padding: 20, backgroundColor: '#fff', borderRadius: 16, boxShadow: '0 2px 8px rgba(0,0,0,0.06)' },
+  scenarioInfo: { flex: 1, cursor: 'pointer' },
+  scenarioHeader: { display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 },
+  scenarioTitle: { fontSize: 17, fontWeight: 700, color: '#333', margin: 0 },
+  defaultBadge: { fontSize: 11, padding: '2px 8px', backgroundColor: '#F0F0F5', color: '#666', borderRadius: 10 },
+  scenarioDesc: { fontSize: 14, color: '#666', margin: '0 0 8px 0' },
+  scenarioMeta: { display: 'flex', gap: 16, fontSize: 13, color: '#999' },
+  scenarioActions: { display: 'flex', gap: 8 },
+  actionBtn: { width: 40, height: 40, display: 'flex', justifyContent: 'center', alignItems: 'center', backgroundColor: '#F8F8FC', border: 'none', borderRadius: 12, cursor: 'pointer' },
+  
+  // 编辑器
+  sectionTitle: { fontSize: 16, fontWeight: 700, color: '#333', marginBottom: 16 },
+  modeSwitch: { display: 'flex', backgroundColor: '#fff', borderRadius: 16, padding: 6, marginBottom: 20 },
+  modeBtn: { flex: 1, padding: '12px 16px', fontSize: 15, fontWeight: 600, backgroundColor: 'transparent', border: 'none', borderRadius: 12, cursor: 'pointer', color: '#666' },
+  modeBtnActive: { backgroundColor: '#B8A9D4', color: '#fff' },
+  characterCard: { padding: 16, backgroundColor: '#FAFAFD', borderRadius: 16, border: '2px solid', marginBottom: 16 },
+  characterHeader: { display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12 },
+  
+  // 聊天
+  container: { maxWidth: '600px', margin: '0 auto', height: '100vh', display: 'flex', flexDirection: 'column', backgroundColor: '#FAFAFD', fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif' },
+  chatHeader: { padding: '12px 16px', backgroundColor: '#fff', borderBottom: '1px solid #F0F0F5', display: 'flex', justifyContent: 'space-between', alignItems: 'center' },
+  chatHeaderLeft: { display: 'flex', alignItems: 'center', gap: 12 },
+  roleTag: { color: '#fff', fontSize: 14, fontWeight: 600, padding: '6px 14px', borderRadius: 20 },
+  endButton: { fontSize: 14, background: 'none', border: 'none', cursor: 'pointer', padding: '8px 16px', borderRadius: 12, fontWeight: 500 },
+  progressStars: { display: 'flex', gap: 4 },
+  chatBox: { flex: 1, padding: 20, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 16 },
+  messageRow: { display: 'flex', alignItems: 'flex-end', gap: 10 },
+  narratorBubble: { width: '100%', textAlign: 'center', fontSize: 15, color: '#888', padding: '12px 0', display: 'flex', alignItems: 'center', justifyContent: 'center' },
+  sceneBubble: { width: '100%', textAlign: 'center', fontSize: 14, color: '#666', backgroundColor: '#FFFDF5', padding: '14px 20px', borderRadius: 16, border: '2px solid', lineHeight: 1.6 },
+  avatarUser: { width: 36, height: 36, borderRadius: 18, display: 'flex', justifyContent: 'center', alignItems: 'center', flexShrink: 0 },
+  messageBubble: { maxWidth: '75%', padding: '12px 16px', borderRadius: 20, fontSize: 15, lineHeight: 1.5 },
+  npcAvatar: { width: 36, height: 36, borderRadius: 18, display: 'flex', justifyContent: 'center', alignItems: 'center', flexShrink: 0 },
+  npcName: { fontSize: 12, color: '#999', marginBottom: 4, marginLeft: 4 },
+  npcBubble: { backgroundColor: '#F5F5F8', color: '#333', padding: '12px 16px', borderRadius: 20, fontSize: 15, maxWidth: '72%', lineHeight: 1.5 },
+  victimReaction: { width: '100%', padding: '14px 18px', backgroundColor: '#FAFAFA', borderRadius: 16, borderLeft: '4px solid', marginTop: 4 },
+  victimLabel: { fontSize: 12, fontWeight: 600, marginBottom: 6 },
+  victimText: { fontSize: 14, color: '#666', fontStyle: 'italic', lineHeight: 1.6 },
+  typingBubble: { backgroundColor: '#F5F5F8', padding: '14px 20px', borderRadius: 20, display: 'flex', gap: 6, alignItems: 'center' },
+  typingDot: { fontSize: 8, color: '#B8A9D4' },
+  encouragement: { textAlign: 'center', padding: '10px', fontSize: 16, fontWeight: 600, color: '#FFB366' },
+  errorBox: { textAlign: 'center', padding: '12px 16px', backgroundColor: '#FFFDF5', borderRadius: 12, border: '2px solid', marginTop: 8 },
+  inputArea: { padding: '16px 20px', backgroundColor: '#fff', borderTop: '1px solid #F0F0F5', boxShadow: '0 -4px 12px rgba(0,0,0,0.04)' },
+  tipBox: { display: 'flex', alignItems: 'center', marginBottom: 12, padding: '10px 14px', borderRadius: 12, border: '2px solid' },
+  inputContainer: { display: 'flex', gap: 12, alignItems: 'center' },
+  sendButton: { width: 52, height: 52, borderRadius: 26, border: 'none', display: 'flex', justifyContent: 'center', alignItems: 'center', cursor: 'pointer', flexShrink: 0, transition: 'all 0.2s' },
+  
+  // 复盘
+  reviewLoadingContainer: { maxWidth: '600px', margin: '0 auto', height: '100vh', display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', backgroundColor: '#FAFAFD', gap: 20 },
+  loadingCharacter: { width: 100, height: 100, borderRadius: 50, backgroundColor: '#F5F0FF', display: 'flex', justifyContent: 'center', alignItems: 'center' },
+  loadingSpinner: { width: 40, height: 40, border: '4px solid #F0F0F5', borderTopColor: '#B8A9D4', borderRadius: '50%', animation: 'spin 0.8s linear infinite' },
+  loadingText: { fontSize: 20, color: '#333', fontWeight: 600, margin: 0 },
+  loadingHint: { fontSize: 16, color: '#999', margin: 0 },
+  reviewContainer: { maxWidth: '600px', margin: '0 auto', minHeight: '100vh', padding: '40px 24px', backgroundColor: '#FAFAFD' },
+  reviewHeader: { textAlign: 'center', marginBottom: 32 },
+  completionBadge: { width: 60, height: 60, borderRadius: 30, backgroundColor: '#FFF8E0', display: 'flex', justifyContent: 'center', alignItems: 'center', margin: '0 auto 16px' },
+  reviewBadge: { display: 'inline-block', color: '#fff', fontSize: 14, fontWeight: 600, padding: '6px 16px', borderRadius: 20, marginBottom: 12 },
+  reviewTitle: { fontSize: 24, fontWeight: 700, color: '#333', margin: 0 },
+  reviewSubtitle: { fontSize: 16, color: '#999', marginTop: 8 },
+  reviewCard: { backgroundColor: '#fff', borderRadius: 24, padding: 28, boxShadow: '0 8px 32px rgba(0,0,0,0.08)', marginBottom: 28, border: '3px solid' },
+  reviewIcon: { width: 56, height: 56, borderRadius: 28, backgroundColor: '#FFF5F5', display: 'flex', justifyContent: 'center', alignItems: 'center', margin: '0 auto 16px' },
+  reviewContent: { fontSize: 17, color: '#444', lineHeight: 1.9, margin: 0, whiteSpace: 'pre-wrap', textAlign: 'center' },
+  reviewActions: { display: 'flex', gap: 16 },
+  replayButton: { flex: 1, padding: '16px 24px', color: '#fff', fontSize: 16, fontWeight: 600, border: 'none', borderRadius: 16, cursor: 'pointer', display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 8 },
+  backButton: { flex: 1, padding: '16px 24px', backgroundColor: '#fff', fontSize: 16, fontWeight: 600, border: '2px solid', borderRadius: 16, cursor: 'pointer', display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 8 },
+  reviewFooter: { textAlign: 'center', marginTop: 32, fontSize: 16, color: '#B8A9D4', fontWeight: 600 },
+  
+  confettiContainer: { position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, pointerEvents: 'none', overflow: 'hidden', zIndex: 1000 },
+  confettiPiece: { position: 'absolute', width: 10, height: 10, borderRadius: 2, top: -10, animation: 'fall 3s ease-in forwards' },
+};
+
+// 注入动画样式
+const styleSheet = document.createElement('style');
+styleSheet.textContent = `
+  @keyframes spin { to { transform: rotate(360deg); } }
+  @keyframes fall { 0% { transform: translateY(0) rotate(0deg); opacity: 1; } 100% { transform: translateY(100vh) rotate(720deg); opacity: 0; } }
+`;
+document.head.appendChild(styleSheet);
+
+// 缺失的导入
+function Play(props) { return <svg {...props} viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>; }
+function Zap(props) { return <svg {...props} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>; }
