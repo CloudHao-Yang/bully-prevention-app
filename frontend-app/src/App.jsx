@@ -5,8 +5,9 @@ import {
   ArrowLeft, Save, Wand2, Settings, Eye, Copy, ChevronDown
 } from 'lucide-react';
 import { chatWithMiniMax } from './api';
-import { scenarioStorage, saveUserStory } from './storage';
+import { scenarioStorage, saveUserStory, setNotification, getNotification, clearNotification } from './storage';
 import { generateScenarioFromStory, generateScenarioSummary } from './scenarioGenerator';
+import { HOME_IMAGES } from './homeAssets';
 
 const ENCOURAGEMENT_MESSAGES = [
   '太棒了！💪', '你做得很好！✨', '继续加油！🌟', '你的选择很有勇气！💖', '真了不起！🏆',
@@ -121,6 +122,24 @@ export default function App() {
   const [victimReaction, setVictimReaction] = useState('');
   const [apiError, setApiError] = useState('');
   const [showEncouragement, setShowEncouragement] = useState(false);
+  
+  // 通知状态（从 localStorage 读取）
+  const [notification, setNotification] = useState(() => getNotification());
+  
+  // 清除通知
+  const dismissNotification = () => {
+    setNotification(null);
+    clearNotification();
+  };
+  
+  // 5秒后自动清除通知
+  useEffect(() => {
+    if (notification) {
+      const timer = setTimeout(dismissNotification, 5000);
+      return () => clearTimeout(timer);
+    }
+  }, [notification]);
+  
   const messagesEndRef = useRef(null);
   const MAX_ROUNDS = 4;
 
@@ -134,6 +153,35 @@ export default function App() {
   useEffect(() => {
     scrollToBottom();
   }, [messages, npcReplies, victimReaction]);
+
+  // 显示通知（保存到 localStorage）
+  const showNotification = (type, message) => {
+    setNotification({ type, message });
+    setTimeout(() => setNotification(null), 4000);
+  };
+
+  // 后台生成剧本
+  const generateInBackground = (story) => {
+    // 保存故事
+    saveUserStory(story);
+    
+    // 显示正在生成通知
+    setNotification({ type: 'info', message: '✨ 剧本正在后台生成中...' });
+    
+    // 开始生成
+    generateScenarioFromStory(story)
+      .then((scenario) => {
+        // 保存到场景库
+        scenarioStorage.save(scenario);
+        // 显示完成通知
+        setNotification({ type: 'success', message: '🎉 剧本生成完成，已保存到场景库！' });
+      })
+      .catch((e) => {
+        console.error('生成剧本失败:', e);
+        // 显示失败通知
+        setNotification({ type: 'info', message: '😅 剧本生成遇到问题，请重试' });
+      });
+  };
 
   // 获取角色配置
   function getCharacterConfig(scenario, roleId) {
@@ -247,7 +295,7 @@ export default function App() {
 
   // ===== 视图二：讲述故事 =====
   if (view === VIEW.STORY_INPUT) {
-    return <StoryInputView setView={setView} />;
+    return <StoryInputView setView={setView} onScenarioGenerated={(s) => setCurrentScenario(s)} generateInBackground={generateInBackground} />;
   }
 
   // ===== 视图三：场景库 =====
@@ -409,72 +457,160 @@ export default function App() {
     );
   }
 
-  return null;
+  // 通知 Toast
+  return (
+    <>
+      <GlobalNotification notification={notification} onDismiss={dismissNotification} />
+    </>
+  );
+}
+
+// 全局通知组件
+function GlobalNotification({ notification, onDismiss }) {
+  if (!notification) return null;
+  return (
+    <div style={styles.globalNotificationWrapper} onClick={onDismiss}>
+      <div style={{
+        ...styles.globalNotification,
+        backgroundColor: notification.type === 'success' ? '#E8F5E9' : '#FFF8F0',
+        borderColor: notification.type === 'success' ? '#4CAF50' : '#FFB366',
+      }}>
+        <span style={{ fontSize: 15 }}>{notification.message}</span>
+        <button 
+          style={styles.notificationDismiss}
+          onClick={onDismiss}
+        >
+          ✕
+        </button>
+      </div>
+    </div>
+  );
 }
 
 // ===== 子视图：首页 =====
 function HomeView({ setView }) {
+  const [clickedBtn, setClickedBtn] = useState(null);
+  
+  const handleClick = (btnId, action) => {
+    setClickedBtn(btnId);
+    setTimeout(() => {
+      action();
+      setClickedBtn(null);
+    }, 300);
+  };
+
   return (
-    <div style={styles.selectContainer}>
-      <style>{`
-        @keyframes floatIn { from { opacity:0; transform:translateY(30px); } to { opacity:1; transform:translateY(0); } }
-        @keyframes pulse { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.05); } }
-      `}</style>
-      
-      <div style={styles.selectHeader}>
-        <div style={styles.logoContainer}><Sparkles size={40} color="#FFB366" /></div>
-        <h1 style={styles.selectTitle}>《别想欺负我》</h1>
-        <p style={styles.selectSubtitle}>🌈 选择你的方式，开启学习之旅</p>
+    <div style={styles.mobileHomeContainer}>
+      {/* 顶部标题 */}
+      <div style={styles.mobileHeader}>
+        <div style={styles.mobileBadge}>🌈 儿童反欺凌教育</div>
+        <h1 style={styles.mobileTitle}>《别想欺负我》</h1>
+        <p style={styles.mobileSubtitle}>用AI和角色扮演，帮助孩子学会保护自己</p>
       </div>
 
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 20, maxWidth: 600, margin: '0 auto' }}>
+      {/* 悬浮装饰 */}
+      <div style={styles.floatingDecorations}>
+        <span style={{ ...styles.floatEmoji, top: '5%', left: '10%', animationDelay: '0s' }}>⭐</span>
+        <span style={{ ...styles.floatEmoji, top: '15%', right: '8%', animationDelay: '0.5s' }}>✨</span>
+        <span style={{ ...styles.floatEmoji, top: '60%', left: '5%', animationDelay: '1s' }}>🌟</span>
+        <span style={{ ...styles.floatEmoji, top: '70%', right: '10%', animationDelay: '1.5s' }}>💫</span>
+      </div>
+
+      {/* 主图区域 */}
+      <div style={styles.mobileHeroWrapper}>
+        <img 
+          src={HOME_IMAGES.hero.url} 
+          alt="温馨校园"
+          style={styles.mobileHeroImage}
+        />
+      </div>
+
+      {/* 可爱图标按钮区 */}
+      <div style={styles.iconButtonGrid}>
+        
         {/* 我来描述 */}
-        <div style={{ ...styles.entryCard, borderColor: '#FFB366', animation: 'floatIn 0.5s ease-out 0.1s both' }} onClick={() => setView(VIEW.STORY_INPUT)}>
-          <div style={{ ...styles.entryIcon, backgroundColor: '#FFF8F0' }}>
-            <Wand2 size={32} color="#FFB366" />
+        <button 
+          style={{
+            ...styles.iconButton,
+            backgroundColor: clickedBtn === 'story' ? '#FFE4CC' : '#FFF8F0',
+            transform: clickedBtn === 'story' ? 'scale(0.95)' : 'scale(1)',
+          }}
+          onClick={() => handleClick('story', () => setView(VIEW.STORY_INPUT))}
+        >
+          <div style={{ ...styles.iconCircle, backgroundColor: '#FFB366' }}>
+            <Wand2 size={28} color="#fff" />
           </div>
-          <div style={styles.entryContent}>
-            <h3 style={{ ...styles.entryTitle, color: '#FFB366' }}>✨ 我来描述</h3>
-            <p style={styles.entryDesc}>讲述你自己的故事，AI为你生成专属剧本</p>
-          </div>
-          <ChevronRight size={24} color="#FFB366" />
-        </div>
+          <span style={styles.iconLabel}>✨ 我来描述</span>
+          <span style={styles.iconHint}>AI帮你写剧本</span>
+        </button>
 
         {/* 场景库 */}
-        <div style={{ ...styles.entryCard, borderColor: '#7ECEC1', animation: 'floatIn 0.5s ease-out 0.2s both' }} onClick={() => setView(VIEW.SCENARIO_LIBRARY)}>
-          <div style={{ ...styles.entryIcon, backgroundColor: '#F0FFFE' }}>
-            <BookOpen size={32} color="#7ECEC1" />
+        <button 
+          style={{
+            ...styles.iconButton,
+            backgroundColor: clickedBtn === 'library' ? '#D4F5F0' : '#F0FFFE',
+            transform: clickedBtn === 'library' ? 'scale(0.95)' : 'scale(1)',
+          }}
+          onClick={() => handleClick('library', () => setView(VIEW.SCENARIO_LIBRARY))}
+        >
+          <div style={{ ...styles.iconCircle, backgroundColor: '#7ECEC1' }}>
+            <BookOpen size={28} color="#fff" />
           </div>
-          <div style={styles.entryContent}>
-            <h3 style={{ ...styles.entryTitle, color: '#7ECEC1' }}>📚 场景库</h3>
-            <p style={styles.entryDesc}>选择预设场景或管理你创建的剧本</p>
-          </div>
-          <ChevronRight size={24} color="#7ECEC1" />
-        </div>
+          <span style={styles.iconLabel}>📚 场景库</span>
+          <span style={styles.iconHint}>选择或管理剧本</span>
+        </button>
 
         {/* 快速开始 */}
-        <div style={{ ...styles.entryCard, borderColor: '#B8A9D4', animation: 'floatIn 0.5s ease-out 0.3s both' }} onClick={() => { const s = scenarioStorage.getDefaultScenarios()[0]; if (s) { setCurrentScenarioHome(s); setView(VIEW.ROLE_SELECT); } }}>
-          <div style={{ ...styles.entryIcon, backgroundColor: '#F8F5FF' }}>
-            <Zap size={32} color="#B8A9D4" />
+        <button 
+          style={{
+            ...styles.iconButton,
+            backgroundColor: clickedBtn === 'quick' ? '#E8E0F5' : '#F8F5FF',
+            transform: clickedBtn === 'quick' ? 'scale(0.95)' : 'scale(1)',
+          }}
+          onClick={() => handleClick('quick', () => { 
+            const s = scenarioStorage.getDefaultScenarios()[0]; 
+            if (s) { setCurrentScenarioHome(s); setView(VIEW.ROLE_SELECT); } 
+          })}
+        >
+          <div style={{ ...styles.iconCircle, backgroundColor: '#B8A9D4' }}>
+            <Zap size={28} color="#fff" />
           </div>
-          <div style={styles.entryContent}>
-            <h3 style={{ ...styles.entryTitle, color: '#B8A9D4' }}>⚡ 快速开始</h3>
-            <p style={styles.entryDesc}>直接进入"被起外号"场景体验</p>
-          </div>
-          <ChevronRight size={24} color="#B8A9D4" />
-        </div>
+          <span style={styles.iconLabel}>⚡ 快速开始</span>
+          <span style={styles.iconHint}>直接体验场景</span>
+        </button>
+
       </div>
 
-      <div style={styles.footerTip}>💡 提示：尝试不同的方式，会看到不同的学习体验！</div>
+      {/* 底部寄语 */}
+      <div style={styles.mobileFooter}>
+        <p style={styles.mobileFooterText}>💖 每一个勇敢表达的孩子，都值得被守护</p>
+      </div>
+
+      <style>{`
+        @keyframes floatIn { 
+          from { opacity: 0; transform: translateY(20px); } 
+          to { opacity: 1; transform: translateY(0); } 
+        }
+        @keyframes float { 
+          0%, 100% { transform: translateY(0px) rotate(0deg); opacity: 0.7; }
+          50% { transform: translateY(-15px) rotate(5deg); opacity: 1; }
+        }
+        @keyframes bounce { 
+          0%, 100% { transform: scale(1); }
+          50% { transform: scale(1.1); }
+        }
+        .icon-btn:active {
+          animation: bounce 0.3s ease;
+        }
+      `}</style>
     </div>
   );
 }
 
 // ===== 子视图：讲述故事 =====
-function StoryInputView({ setView }) {
+function StoryInputView({ setView, onScenarioGenerated, generateInBackground }) {
   const [story, setStory] = useState('');
   const [isGenerating, setIsGenerating] = useState(false);
-  const [generatedScenario, setGeneratedScenario] = useState(null);
   const [error, setError] = useState('');
 
   const handleGenerate = async () => {
@@ -487,18 +623,43 @@ function StoryInputView({ setView }) {
     try {
       saveUserStory(story);
       const scenario = await generateScenarioFromStory(story);
-      setGeneratedScenario(scenario);
+      if (onScenarioGenerated) {
+        onScenarioGenerated(scenario);
+      }
       setView(VIEW.SCENARIO_PREVIEW);
     } catch (e) {
       setError(e.message || '生成失败，请重试');
+      console.error('生成剧本失败:', e);
     } finally {
       setIsGenerating(false);
     }
   };
 
+  // 如果正在生成，显示加载状态
+  if (isGenerating) {
+    return (
+      <div style={styles.generatingContainer}>
+        <div style={styles.generatingContent}>
+          <div style={styles.generatingIcon}>
+            <Wand2 size={48} color="#FFB366" />
+          </div>
+          <div style={styles.generatingSpinner} />
+          <h2 style={styles.generatingTitle}>✨ 正在生成剧本</h2>
+          <p style={styles.generatingHint}>
+            AI 正在分析你的故事<br />
+            请稍候片刻...
+          </p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div style={styles.selectContainer}>
-      <button style={{ ...styles.backBtn, marginBottom: 16 }} onClick={() => setView(VIEW.HOME)}>
+      <button 
+        style={{ ...styles.backBtn, marginBottom: 16 }} 
+        onClick={() => setView(VIEW.HOME)}
+      >
         <ArrowLeft size={20} /> 返回首页
       </button>
 
@@ -519,11 +680,36 @@ function StoryInputView({ setView }) {
           />
           {error && <p style={{ color: '#FF6B6B', fontSize: 14, marginTop: 8 }}>{error}</p>}
           
-          <div style={{ marginTop: 20, display: 'flex', gap: 12 }}>
-            <Button onClick={handleGenerate} disabled={isGenerating || !story.trim()} icon={<Wand2 size={18} />}>
-              {isGenerating ? '生成中...' : '✨ 生成剧本'}
-            </Button>
-            <Button variant="secondary" onClick={() => setView(VIEW.HOME)}>取消</Button>
+          <div style={{ marginTop: 20, display: 'flex', flexDirection: 'column', gap: 12 }}>
+            <div style={{ display: 'flex', gap: 12 }}>
+              <Button onClick={handleGenerate} disabled={!story.trim()} icon={<Wand2 size={18} />}>
+                ✨ 生成剧本
+              </Button>
+              <Button variant="secondary" onClick={() => setView(VIEW.HOME)}>取消</Button>
+            </div>
+            <button 
+              style={{
+                padding: '12px 24px',
+                borderRadius: 16,
+                border: '2px dashed #E5E5EA',
+                backgroundColor: '#FAFAFD',
+                color: '#888',
+                fontSize: 14,
+                fontWeight: 600,
+                cursor: story.trim() ? 'pointer' : 'not-allowed',
+                opacity: story.trim() ? 1 : 0.5,
+              }}
+              onClick={() => {
+                if (story.trim() && generateInBackground) {
+                  saveUserStory(story);
+                  generateInBackground(story);
+                  setView(VIEW.HOME);
+                }
+              }}
+              disabled={!story.trim()}
+            >
+              🔄 后台生成（完成后自动保存到场景库）
+            </button>
           </div>
         </Card>
 
@@ -747,7 +933,18 @@ function ScenarioEditorView({ setView, scenario, onSave }) {
 
 // ===== 子视图：场景预览 =====
 function ScenarioPreviewView({ setView, scenario, onEdit, onStart }) {
-  if (!scenario) return null;
+  if (!scenario) {
+    return (
+      <div style={styles.selectContainer}>
+        <button style={{ ...styles.backBtn, marginBottom: 16 }} onClick={() => setView(VIEW.HOME)}>
+          <ArrowLeft size={20} /> 返回首页
+        </button>
+        <div style={{ textAlign: 'center', padding: 60 }}>
+          <p style={{ color: '#999', fontSize: 16 }}>剧本加载中...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div style={styles.selectContainer}>
@@ -811,6 +1008,235 @@ var currentScenarioGlobal = null;
 
 // ===== 样式 =====
 const styles = {
+  // ===== 移动端友好首页样式 =====
+  mobileHomeContainer: {
+    minHeight: '100vh',
+    backgroundColor: '#FEFCF8',
+    fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+    position: 'relative',
+    overflow: 'hidden',
+    padding: '0 20px',
+    boxSizing: 'border-box',
+  },
+  mobileHeader: {
+    textAlign: 'center',
+    paddingTop: 40,
+    marginBottom: 20,
+  },
+  mobileBadge: {
+    display: 'inline-block',
+    padding: '6px 16px',
+    backgroundColor: 'rgba(255,179,102,0.15)',
+    color: '#FF9F40',
+    borderRadius: 20,
+    fontSize: 13,
+    fontWeight: 600,
+    marginBottom: 12,
+    animation: 'floatIn 0.5s ease-out both',
+  },
+  mobileTitle: {
+    fontSize: 32,
+    fontWeight: 800,
+    color: '#333',
+    margin: '0 0 8px 0',
+    animation: 'floatIn 0.5s ease-out 0.1s both',
+  },
+  mobileSubtitle: {
+    fontSize: 14,
+    color: '#888',
+    margin: 0,
+    lineHeight: 1.5,
+    animation: 'floatIn 0.5s ease-out 0.2s both',
+  },
+  floatingDecorations: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    pointerEvents: 'none',
+    zIndex: 0,
+  },
+  floatEmoji: {
+    position: 'absolute',
+    fontSize: 20,
+    animation: 'float 6s ease-in-out infinite',
+    opacity: 0.6,
+  },
+  mobileHeroWrapper: {
+    width: '100%',
+    maxWidth: 400,
+    margin: '0 auto 24px',
+    borderRadius: 20,
+    overflow: 'hidden',
+    boxShadow: '0 12px 40px rgba(255,179,102,0.15)',
+    animation: 'floatIn 0.6s ease-out 0.3s both',
+    position: 'relative',
+    zIndex: 1,
+  },
+  mobileHeroImage: {
+    width: '100%',
+    height: 'auto',
+    display: 'block',
+  },
+  iconButtonGrid: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(3, 1fr)',
+    gap: 12,
+    maxWidth: 500,
+    margin: '0 auto',
+    position: 'relative',
+    zIndex: 1,
+    animation: 'floatIn 0.5s ease-out 0.4s both',
+  },
+  iconButton: {
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: '20px 12px',
+    border: 'none',
+    borderRadius: 20,
+    cursor: 'pointer',
+    transition: 'all 0.2s ease',
+    boxShadow: '0 4px 12px rgba(0,0,0,0.06)',
+    minHeight: 130,
+  },
+  iconCircle: {
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    display: 'flex',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 10,
+    boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+  },
+  iconLabel: {
+    fontSize: 13,
+    fontWeight: 700,
+    color: '#333',
+    marginBottom: 4,
+  },
+  iconHint: {
+    fontSize: 11,
+    color: '#999',
+  },
+  mobileFooter: {
+    textAlign: 'center',
+    padding: '40px 20px 50px',
+    position: 'relative',
+    zIndex: 1,
+  },
+  mobileFooterText: {
+    fontSize: 14,
+    color: '#B8A9D4',
+    fontWeight: 600,
+    margin: 0,
+  },
+
+  // ===== 生成中加载状态 =====
+  generatingContainer: {
+    minHeight: '100vh',
+    display: 'flex',
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#FEFCF8',
+    padding: 24,
+  },
+  generatingContent: {
+    textAlign: 'center',
+    maxWidth: 300,
+  },
+  generatingIcon: {
+    width: 100,
+    height: 100,
+    borderRadius: 50,
+    backgroundColor: '#FFF8F0',
+    display: 'flex',
+    justifyContent: 'center',
+    alignItems: 'center',
+    margin: '0 auto 24px',
+    animation: 'pulse 2s ease-in-out infinite',
+  },
+  generatingSpinner: {
+    width: 40,
+    height: 40,
+    border: '4px solid #FFE4CC',
+    borderTopColor: '#FFB366',
+    borderRadius: '50%',
+    margin: '0 auto 24px',
+    animation: 'spin 1s linear infinite',
+  },
+  generatingTitle: {
+    fontSize: 22,
+    fontWeight: 700,
+    color: '#333',
+    margin: '0 0 12px 0',
+  },
+  generatingHint: {
+    fontSize: 15,
+    color: '#888',
+    lineHeight: 1.6,
+    margin: 0,
+  },
+
+  // ===== 通知提示 =====
+  appWrapper: {
+    minHeight: '100vh',
+    position: 'relative',
+  },
+  notificationWrapper: {
+    position: 'fixed',
+    top: 20,
+    left: '50%',
+    transform: 'translateX(-50%)',
+    zIndex: 9999,
+    animation: 'slideInDown 0.3s ease-out',
+  },
+  notificationToast: {
+    padding: '14px 24px',
+    borderRadius: 16,
+    border: '2px solid',
+    boxShadow: '0 8px 24px rgba(0,0,0,0.15)',
+    display: 'flex',
+    alignItems: 'center',
+    gap: 10,
+    maxWidth: 400,
+  },
+
+  // ===== 全局通知样式 =====
+  globalNotificationWrapper: {
+    position: 'fixed',
+    top: 20,
+    left: '50%',
+    transform: 'translateX(-50%)',
+    zIndex: 9999,
+    cursor: 'pointer',
+    animation: 'slideInDown 0.3s ease-out',
+  },
+  globalNotification: {
+    padding: '14px 20px',
+    borderRadius: 16,
+    border: '2px solid',
+    boxShadow: '0 8px 24px rgba(0,0,0,0.15)',
+    display: 'flex',
+    alignItems: 'center',
+    gap: 12,
+    maxWidth: 360,
+    minWidth: 200,
+  },
+  notificationDismiss: {
+    background: 'none',
+    border: 'none',
+    fontSize: 16,
+    color: '#999',
+    cursor: 'pointer',
+    padding: 0,
+    marginLeft: 4,
+  },
+
+  // ===== 原有样式 =====
   selectContainer: {
     maxWidth: '800px', margin: '0 auto', minHeight: '100vh',
     padding: '40px 24px', backgroundColor: '#FAFAFD',
@@ -936,6 +1362,8 @@ const styleSheet = document.createElement('style');
 styleSheet.textContent = `
   @keyframes spin { to { transform: rotate(360deg); } }
   @keyframes fall { 0% { transform: translateY(0) rotate(0deg); opacity: 1; } 100% { transform: translateY(100vh) rotate(720deg); opacity: 0; } }
+  @keyframes pulse { 0%, 100% { transform: scale(1); opacity: 1; } 50% { transform: scale(1.1); opacity: 0.8; } }
+  @keyframes slideInDown { from { transform: translateX(-50%) translateY(-20px); opacity: 0; } to { transform: translateX(-50%) translateY(0); opacity: 1; } }
 `;
 document.head.appendChild(styleSheet);
 

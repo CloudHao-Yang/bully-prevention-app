@@ -5,7 +5,42 @@ const STORAGE_KEYS = {
   USER_STORIES: 'bully_user_stories',
   PRACTICE_LOGS: 'bully_practice_logs',
   SETTINGS: 'bully_settings',
+  NOTIFICATION: 'bully_notification',
 };
+
+// 通知管理
+export function setNotification(message, type = 'success') {
+  try {
+    localStorage.setItem(STORAGE_KEYS.NOTIFICATION, JSON.stringify({ message, type, timestamp: Date.now() }));
+  } catch (e) {
+    console.error('保存通知失败:', e);
+  }
+}
+
+export function getNotification() {
+  try {
+    const stored = localStorage.getItem(STORAGE_KEYS.NOTIFICATION);
+    if (stored) {
+      const notification = JSON.parse(stored);
+      // 通知5秒后自动过期
+      if (Date.now() - notification.timestamp < 5000) {
+        return notification;
+      }
+      clearNotification();
+    }
+    return null;
+  } catch (e) {
+    return null;
+  }
+}
+
+export function clearNotification() {
+  try {
+    localStorage.removeItem(STORAGE_KEYS.NOTIFICATION);
+  } catch (e) {
+    console.error('清除通知失败:', e);
+  }
+}
 
 // 默认场景 - 欺凌场景预设
 export const DEFAULT_SCENARIOS = [
