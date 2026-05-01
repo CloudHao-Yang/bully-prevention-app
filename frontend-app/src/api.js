@@ -1,4 +1,3 @@
-const API_KEY = 'sk-cp-PbbHkdhzlTAnlZUFMfB7_ASXhcrBXFd7S51Q0UCupgnSMrxBFt3nGfsF0qoZIdqI8_wksEaGsJSBiZANI6H0P_v-3M18xHYAadn6yCZ2U1BPd3lu-W8wYRY';
 const BASE_URL = '/api/minimax/v1/messages';
 
 export async function chatWithMiniMax(messages, systemPrompt) {
@@ -6,8 +5,6 @@ export async function chatWithMiniMax(messages, systemPrompt) {
     const response = await fetch(BASE_URL, {
       method: 'POST',
       headers: {
-        'x-api-key': API_KEY,
-        'anthropic-version': '2023-06-01',
         'content-type': 'application/json',
       },
       body: JSON.stringify({

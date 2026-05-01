@@ -5,7 +5,7 @@ import {
   ArrowLeft, Save, Wand2, Settings, Eye, Copy, ChevronDown
 } from 'lucide-react';
 import { chatWithMiniMax } from './api';
-import { scenarioStorage, saveUserStory, setNotification, getNotification, clearNotification } from './storage';
+import { scenarioStorage, saveUserStory, setNotification as persistNotification, getNotification, clearNotification } from './storage';
 import { generateScenarioFromStory, generateScenarioSummary } from './scenarioGenerator';
 import { HOME_IMAGES } from './homeAssets';
 
@@ -154,10 +154,10 @@ export default function App() {
     scrollToBottom();
   }, [messages, npcReplies, victimReaction]);
 
-  // 显示通知（保存到 localStorage）
-  const showNotification = (type, message) => {
-    setNotification({ type, message });
-    setTimeout(() => setNotification(null), 4000);
+  const pushNotification = (type, message) => {
+    const next = { type, message };
+    setNotification(next);
+    persistNotification(message, type);
   };
 
   // 后台生成剧本
@@ -166,7 +166,7 @@ export default function App() {
     saveUserStory(story);
     
     // 显示正在生成通知
-    setNotification({ type: 'info', message: '✨ 剧本正在后台生成中...' });
+    pushNotification('info', '✨ 剧本正在后台生成中...');
     
     // 开始生成
     generateScenarioFromStory(story)
@@ -174,12 +174,12 @@ export default function App() {
         // 保存到场景库
         scenarioStorage.save(scenario);
         // 显示完成通知
-        setNotification({ type: 'success', message: '🎉 剧本生成完成，已保存到场景库！' });
+        pushNotification('success', '🎉 剧本生成完成，已保存到场景库！');
       })
       .catch((e) => {
         console.error('生成剧本失败:', e);
         // 显示失败通知
-        setNotification({ type: 'info', message: '😅 剧本生成遇到问题，请重试' });
+        pushNotification('info', '😅 剧本生成遇到问题，请重试');
       });
   };
 
@@ -232,17 +232,20 @@ export default function App() {
         .map(m => `${m.character}：${m.content}`)
         .join('\n');
 
+      const bully = currentScenario?.characters?.find(c => c.id === 'bully') || { name: '小刚' };
+      const victim = currentScenario?.characters?.find(c => c.id === 'victim') || { name: '小明' };
+
       const bullyReply = await chatWithMiniMax(
-        [{ role: 'user', content: `对话历史：\n${historyText}\n\n请以小刚的身份回应。` }],
-        currentScenario.characters?.find(c => c.id === 'bully')?.systemPrompt || BULLY_PROMPT
+        [{ role: 'user', content: `对话历史：\n${historyText}\n\n请以${bully.name}的身份回应。` }],
+        bully?.systemPrompt || BULLY_PROMPT
       );
 
       const victimReact = await chatWithMiniMax(
-        [{ role: 'user', content: `小刚刚说了：${bullyReply}\n\n请描述小明的反应。` }],
+        [{ role: 'user', content: `${bully.name}刚刚说了：${bullyReply}\n\n请描述${victim.name}的反应。` }],
         VICTIM_SILENT_PROMPT
       );
 
-      setNpcReplies([{ id: Date.now() + 1, character: '小刚', text: bullyReply?.trim() || '...' }]);
+      setNpcReplies([{ id: Date.now() + 1, character: bully.name, text: bullyReply?.trim() || '...' }]);
       setVictimReaction(victimReact?.trim() || '');
 
       const nextRound = round + 1;
@@ -290,176 +293,247 @@ export default function App() {
 
   // ===== 视图一：首页 =====
   if (view === VIEW.HOME) {
-    return <HomeView setView={setView} />;
+    return (
+      <>
+        <HomeView
+          setView={setView}
+          onQuickStart={(scenario) => {
+            setCurrentScenario(scenario);
+            setView(VIEW.ROLE_SELECT);
+          }}
+        />
+        <GlobalNotification notification={notification} onDismiss={dismissNotification} />
+      </>
+    );
   }
 
   // ===== 视图二：讲述故事 =====
   if (view === VIEW.STORY_INPUT) {
-    return <StoryInputView setView={setView} onScenarioGenerated={(s) => setCurrentScenario(s)} generateInBackground={generateInBackground} />;
+    return (
+      <>
+        <StoryInputView setView={setView} onScenarioGenerated={(s) => setCurrentScenario(s)} generateInBackground={generateInBackground} />
+        <GlobalNotification notification={notification} onDismiss={dismissNotification} />
+      </>
+    );
   }
 
   // ===== 视图三：场景库 =====
   if (view === VIEW.SCENARIO_LIBRARY) {
-    return <ScenarioLibraryView setView={setView} onSelectScenario={(s) => { setCurrentScenario(s); setView(VIEW.ROLE_SELECT); }} />;
+    return (
+      <>
+        <ScenarioLibraryView
+          setView={setView}
+          onSelectScenario={(s) => {
+            setCurrentScenario(s);
+            setView(VIEW.ROLE_SELECT);
+          }}
+          onEditScenario={(s) => {
+            setCurrentScenario(s);
+            setView(VIEW.SCENARIO_EDITOR);
+          }}
+        />
+        <GlobalNotification notification={notification} onDismiss={dismissNotification} />
+      </>
+    );
   }
 
   // ===== 视图四：场景编辑器 =====
   if (view === VIEW.SCENARIO_EDITOR) {
-    return <ScenarioEditorView setView={setView} scenario={currentScenario} onSave={(s) => { setCurrentScenario(s); setView(VIEW.ROLE_SELECT); }} />;
+    return (
+      <>
+        <ScenarioEditorView
+          setView={setView}
+          scenario={currentScenario}
+          onSave={(s) => {
+            setCurrentScenario(s);
+            setView(VIEW.ROLE_SELECT);
+          }}
+        />
+        <GlobalNotification notification={notification} onDismiss={dismissNotification} />
+      </>
+    );
   }
 
   // ===== 视图五：场景预览 =====
   if (view === VIEW.SCENARIO_PREVIEW) {
-    return <ScenarioPreviewView setView={setView} scenario={currentScenario} onEdit={() => setView(VIEW.SCENARIO_EDITOR)} onStart={(roleId) => startPractice(currentScenario, roleId)} />;
+    return (
+      <>
+        <ScenarioPreviewView
+          setView={setView}
+          scenario={currentScenario}
+          onEdit={() => setView(VIEW.SCENARIO_EDITOR)}
+          onStart={(roleId) => startPractice(currentScenario, roleId)}
+        />
+        <GlobalNotification notification={notification} onDismiss={dismissNotification} />
+      </>
+    );
   }
 
   // ===== 视图六：角色选择 =====
   if (view === VIEW.ROLE_SELECT) {
     return (
-      <div style={styles.selectContainer}>
-        <style>{`@keyframes floatIn { from { opacity:0; transform:translateY(30px); } to { opacity:1; transform:translateY(0); } }`}</style>
-        
-        <div style={styles.selectHeader}>
-          <button style={{ ...styles.backBtn, marginBottom: 16 }} onClick={goHome}>
-            <ArrowLeft size={20} /> 返回首页
-          </button>
-          <div style={styles.logoContainer}><Sparkles size={40} color="#FFB366" /></div>
-          <h1 style={styles.selectTitle}>{currentScenario?.title || '选择你的角色'}</h1>
-          <p style={styles.selectSubtitle}>🌈 每个角色都会带你看到不同的故事</p>
-        </div>
-        
-        <div style={styles.roleGrid}>
-          {[
-            { id: 'victim', emoji: '🛡️', title: '被针对的同学', subtitle: currentScenario?.characters?.find(c => c.id === 'victim')?.name || '小明', description: '经历被欺负的感受，练习如何回应' },
-            { id: 'bystander', emoji: '💚', title: '关心同学的朋友', subtitle: '小亮', description: '作为旁观者，练习如何帮助和支持' },
-            { id: 'accomplice', emoji: '⚡', title: '跟着起哄的同学', subtitle: '小强', description: '体验跟风者的心理，理解旁观者效应' },
-            { id: 'observer', emoji: '👁️', title: '静静观察的你', subtitle: '观察者', description: '客观看待整个事件，理解欺凌的完整链条' },
-          ].map((role, i) => (
-            <button
-              key={role.id}
-              onClick={() => startPractice(currentScenario, role.id)}
-              style={{
-                ...styles.roleCard,
-                background: `linear-gradient(135deg, #FFF${i * 3}FF 0%, #FFE${i * 3}E4 100%)`,
-                borderColor: ['#E8A0A0', '#7ECEC1', '#F5D98A', '#B8A9D4'][i],
-                animation: `floatIn 0.5s ease-out ${i * 0.12}s both`,
-              }}
-            >
-              <div style={{ fontSize: 48, marginBottom: 12 }}>{role.emoji}</div>
-              <h3 style={{ fontSize: 18, fontWeight: 700, color: ['#E8A0A0', '#7ECEC1', '#F5D98A', '#B8A9D4'][i], margin: '0 0 4px 0' }}>{role.title}</h3>
-              <p style={{ fontSize: 14, color: '#888', margin: '0 0 8px 0' }}>{role.subtitle}</p>
-              <p style={{ fontSize: 14, color: '#666', lineHeight: 1.6, margin: 0 }}>{role.description}</p>
-              <div style={{ marginTop: 16, color: ['#E8A0A0', '#7ECEC1', '#F5D98A', '#B8A9D4'][i], fontSize: 14, fontWeight: 600 }}>点击开始 <ChevronRight size={16} /></div>
+      <>
+        <div style={styles.selectContainer}>
+          <style>{`@keyframes floatIn { from { opacity:0; transform:translateY(30px); } to { opacity:1; transform:translateY(0); } }`}</style>
+          
+          <div style={styles.selectHeader}>
+            <button style={{ ...styles.backBtn, marginBottom: 16 }} onClick={goHome}>
+              <ArrowLeft size={20} /> 返回首页
             </button>
-          ))}
+            <div style={styles.logoContainer}><Sparkles size={40} color="#FFB366" /></div>
+            <h1 style={styles.selectTitle}>{currentScenario?.title || '选择你的角色'}</h1>
+            <p style={styles.selectSubtitle}>🌈 每个角色都会带你看到不同的故事</p>
+          </div>
+          
+          <div style={styles.roleGrid}>
+            {[
+              { id: 'victim', emoji: '🛡️', title: '被针对的同学', subtitle: currentScenario?.characters?.find(c => c.id === 'victim')?.name || '小明', description: '经历被欺负的感受，练习如何回应' },
+              { id: 'bystander', emoji: '💚', title: '关心同学的朋友', subtitle: '小亮', description: '作为旁观者，练习如何帮助和支持' },
+              { id: 'accomplice', emoji: '⚡', title: '跟着起哄的同学', subtitle: '小强', description: '体验跟风者的心理，理解旁观者效应' },
+              { id: 'observer', emoji: '👁️', title: '静静观察的你', subtitle: '观察者', description: '客观看待整个事件，理解欺凌的完整链条' },
+            ].map((role, i) => (
+              <button
+                key={role.id}
+                onClick={() => startPractice(currentScenario, role.id)}
+                style={{
+                  ...styles.roleCard,
+                  background: `linear-gradient(135deg, #FFF${i * 3}FF 0%, #FFE${i * 3}E4 100%)`,
+                  borderColor: ['#E8A0A0', '#7ECEC1', '#F5D98A', '#B8A9D4'][i],
+                  animation: `floatIn 0.5s ease-out ${i * 0.12}s both`,
+                }}
+              >
+                <div style={{ fontSize: 48, marginBottom: 12 }}>{role.emoji}</div>
+                <h3 style={{ fontSize: 18, fontWeight: 700, color: ['#E8A0A0', '#7ECEC1', '#F5D98A', '#B8A9D4'][i], margin: '0 0 4px 0' }}>{role.title}</h3>
+                <p style={{ fontSize: 14, color: '#888', margin: '0 0 8px 0' }}>{role.subtitle}</p>
+                <p style={{ fontSize: 14, color: '#666', lineHeight: 1.6, margin: 0 }}>{role.description}</p>
+                <div style={{ marginTop: 16, color: ['#E8A0A0', '#7ECEC1', '#F5D98A', '#B8A9D4'][i], fontSize: 14, fontWeight: 600 }}>点击开始 <ChevronRight size={16} /></div>
+              </button>
+            ))}
+          </div>
         </div>
-      </div>
+        <GlobalNotification notification={notification} onDismiss={dismissNotification} />
+      </>
     );
   }
 
   // ===== 视图七：聊天演练 =====
   if (view === VIEW.CHAT) {
     return (
-      <div style={styles.container}>
-        <div style={styles.chatHeader}>
-          <div style={styles.chatHeaderLeft}>
-            <button style={styles.backBtnSmall} onClick={() => setView(VIEW.ROLE_SELECT)}><ArrowLeft size={18} /></button>
-            <div style={{ ...styles.roleTag, backgroundColor: roleColor }}>{config.userIs}</div>
-            <ProgressStars current={round} total={currentScenario?.maxRounds || MAX_ROUNDS} color={roleColor} />
-          </div>
-          <button style={{ ...styles.endButton, color: roleColor }} onClick={() => generateReview(messages)}>结束演练</button>
-        </div>
-
-        <div style={styles.chatBox}>
-          {messages.map((msg) => (
-            <div key={msg.id} style={{ ...styles.messageRow, justifyContent: msg.role === 'user' ? 'flex-end' : 'flex-start' }}>
-              {msg.role === 'narrator' && <div style={styles.narratorBubble}><Sparkles size={14} color="#B8A9D4" style={{ marginRight: 6 }} />{msg.content}</div>}
-              {msg.role === 'scene' && <div style={{ ...styles.sceneBubble, borderColor: `${roleColor}40` }}>{msg.content}</div>}
-              {msg.role === 'user' && (
-                <>
-                  <div style={{ ...styles.avatarUser, backgroundColor: roleColor }}><User size={16} color="#fff" /></div>
-                  <div style={{ ...styles.messageBubble, backgroundColor: roleColor, color: '#fff' }}>{msg.content}</div>
-                </>
-              )}
+      <>
+        <div style={styles.container}>
+          <div style={styles.chatHeader}>
+            <div style={styles.chatHeaderLeft}>
+              <button style={styles.backBtnSmall} onClick={() => setView(VIEW.ROLE_SELECT)}><ArrowLeft size={18} /></button>
+              <div style={{ ...styles.roleTag, backgroundColor: roleColor }}>{config.userIs}</div>
+              <ProgressStars current={round} total={currentScenario?.maxRounds || MAX_ROUNDS} color={roleColor} />
             </div>
-          ))}
+            <button style={{ ...styles.endButton, color: roleColor }} onClick={() => generateReview(messages)}>结束演练</button>
+          </div>
 
-          {npcReplies.map((reply) => (
-            <div key={reply.id} style={{ ...styles.messageRow, justifyContent: 'flex-start' }}>
-              <div style={{ ...styles.npcAvatar, backgroundColor: '#FFB366' }}><Bot size={16} color="#fff" /></div>
-              <div>
-                <div style={styles.npcName}>{reply.character}</div>
-                <div style={styles.npcBubble}>{reply.text}</div>
+          <div style={styles.chatBox}>
+            {messages.map((msg) => (
+              <div key={msg.id} style={{ ...styles.messageRow, justifyContent: msg.role === 'user' ? 'flex-end' : 'flex-start' }}>
+                {msg.role === 'narrator' && <div style={styles.narratorBubble}><Sparkles size={14} color="#B8A9D4" style={{ marginRight: 6 }} />{msg.content}</div>}
+                {msg.role === 'scene' && <div style={{ ...styles.sceneBubble, borderColor: `${roleColor}40` }}>{msg.content}</div>}
+                {msg.role === 'user' && (
+                  <>
+                    <div style={{ ...styles.avatarUser, backgroundColor: roleColor }}><User size={16} color="#fff" /></div>
+                    <div style={{ ...styles.messageBubble, backgroundColor: roleColor, color: '#fff' }}>{msg.content}</div>
+                  </>
+                )}
               </div>
-            </div>
-          ))}
+            ))}
 
-          {victimReaction && (
-            <div style={{ ...styles.victimReaction, borderColor: `${roleColor}60` }}>
-              <div style={{ ...styles.victimLabel, color: roleColor }}>👀 小明的反应</div>
-              <div style={styles.victimText}>{victimReaction}</div>
-            </div>
-          )}
+            {npcReplies.map((reply) => (
+              <div key={reply.id} style={{ ...styles.messageRow, justifyContent: 'flex-start' }}>
+                <div style={{ ...styles.npcAvatar, backgroundColor: '#FFB366' }}><Bot size={16} color="#fff" /></div>
+                <div>
+                  <div style={styles.npcName}>{reply.character}</div>
+                  <div style={styles.npcBubble}>{reply.text}</div>
+                </div>
+              </div>
+            ))}
 
-          {isLoading && <TypingIndicator color={roleColor} />}
-          {showEncouragement && round > 0 && <div style={styles.encouragement}>{ENCOURAGEMENT_MESSAGES[round - 1] || '你做得很好！✨'}</div>}
-          {apiError && <div style={{ ...styles.errorBox, borderColor: `${roleColor}60` }}><span style={{ fontSize: 14, color: roleColor }}>{apiError}</span></div>}
-          <div ref={messagesEndRef} />
-        </div>
+            {victimReaction && (
+              <div style={{ ...styles.victimReaction, borderColor: `${roleColor}60` }}>
+              <div style={{ ...styles.victimLabel, color: roleColor }}>👀 {currentScenario?.characters?.find(c => c.id === 'victim')?.name || '小明'}的反应</div>
+                <div style={styles.victimText}>{victimReaction}</div>
+              </div>
+            )}
 
-        <div style={styles.inputArea}>
-          <div style={{ ...styles.tipBox, backgroundColor: `${roleColor}15`, borderColor: `${roleColor}30` }}>
-            <span style={{ fontSize: 13, color: '#666' }}>💬 你会怎么做？</span>
+            {isLoading && <TypingIndicator color={roleColor} />}
+            {showEncouragement && round > 0 && <div style={styles.encouragement}>{ENCOURAGEMENT_MESSAGES[round - 1] || '你做得很好！✨'}</div>}
+            {apiError && <div style={{ ...styles.errorBox, borderColor: `${roleColor}60` }}><span style={{ fontSize: 14, color: roleColor }}>{apiError}</span></div>}
+            <div ref={messagesEndRef} />
           </div>
-          <div style={styles.inputContainer}>
-            <input type="text" style={{ ...styles.input, borderColor: `${roleColor}40` }} placeholder={`以"${config.userIs}"的身份说...`} value={inputValue} onChange={(e) => setInputValue(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleSend(); } }} disabled={isLoading} />
-            <button style={{ ...styles.sendButton, backgroundColor: inputValue.trim() && !isLoading ? roleColor : '#E5E5EA', transform: inputValue.trim() ? 'scale(1.05)' : 'scale(1)' }} onClick={handleSend} disabled={!inputValue.trim() || isLoading}><Send size={20} color="#fff" /></button>
+
+          <div style={styles.inputArea}>
+            <div style={{ ...styles.tipBox, backgroundColor: `${roleColor}15`, borderColor: `${roleColor}30` }}>
+              <span style={{ fontSize: 13, color: '#666' }}>💬 你会怎么做？</span>
+            </div>
+            <div style={styles.inputContainer}>
+              <input type="text" style={{ ...styles.input, borderColor: `${roleColor}40` }} placeholder={`以"${config.userIs}"的身份说...`} value={inputValue} onChange={(e) => setInputValue(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleSend(); } }} disabled={isLoading} />
+              <button style={{ ...styles.sendButton, backgroundColor: inputValue.trim() && !isLoading ? roleColor : '#E5E5EA', transform: inputValue.trim() ? 'scale(1.05)' : 'scale(1)' }} onClick={handleSend} disabled={!inputValue.trim() || isLoading}><Send size={20} color="#fff" /></button>
+            </div>
           </div>
         </div>
-      </div>
+        <GlobalNotification notification={notification} onDismiss={dismissNotification} />
+      </>
     );
   }
 
   // ===== 视图八：复盘加载中 =====
   if (view === VIEW.REVIEW_LOADING) {
     return (
-      <div style={styles.reviewLoadingContainer}>
-        <Confetti />
-        <div style={styles.loadingCharacter}><Sparkles size={60} color="#B8A9D4" /></div>
-        <div style={styles.loadingSpinner} />
-        <p style={styles.loadingText}>✨ 心理老师正在整理你的精彩表现...</p>
-        <p style={styles.loadingHint}>你真的很棒！🌟</p>
-      </div>
+      <>
+        <div style={styles.reviewLoadingContainer}>
+          <Confetti />
+          <div style={styles.loadingCharacter}><Sparkles size={60} color="#B8A9D4" /></div>
+          <div style={styles.loadingSpinner} />
+          <p style={styles.loadingText}>✨ 心理老师正在整理你的精彩表现...</p>
+          <p style={styles.loadingHint}>你真的很棒！🌟</p>
+        </div>
+        <GlobalNotification notification={notification} onDismiss={dismissNotification} />
+      </>
     );
   }
 
   // ===== 视图九：复盘报告 =====
   if (view === VIEW.REVIEW) {
     return (
-      <div style={styles.reviewContainer}>
-        <Confetti />
-        <div style={styles.reviewHeader}>
-          <div style={styles.completionBadge}><Star size={24} fill="#FFD700" color="#FFD700" /></div>
-          <span style={{ ...styles.reviewBadge, backgroundColor: roleColor }}>✨ 复盘报告</span>
-          <h2 style={styles.reviewTitle}>「{config.userIs}」演练完成</h2>
-          <p style={styles.reviewSubtitle}>🌈 你的每一次选择都很重要！</p>
+      <>
+        <div style={styles.reviewContainer}>
+          <Confetti />
+          <div style={styles.reviewHeader}>
+            <div style={styles.completionBadge}><Star size={24} fill="#FFD700" color="#FFD700" /></div>
+            <span style={{ ...styles.reviewBadge, backgroundColor: roleColor }}>✨ 复盘报告</span>
+            <h2 style={styles.reviewTitle}>「{config.userIs}」演练完成</h2>
+            <p style={styles.reviewSubtitle}>🌈 你的每一次选择都很重要！</p>
+          </div>
+          <div style={{ ...styles.reviewCard, borderColor: `${roleColor}40` }}>
+            <div style={styles.reviewIcon}><Heart size={32} color={roleColor} /></div>
+            <p style={styles.reviewContent}>{reviewContent}</p>
+          </div>
+          <div style={styles.reviewActions}>
+            <button style={{ ...styles.replayButton, backgroundColor: roleColor }} onClick={replay}><RotateCcw size={18} /> 再来一次</button>
+            <button style={{ ...styles.backButton, borderColor: roleColor, color: roleColor }} onClick={goHome}><Home size={18} /> 返回首页</button>
+          </div>
+          <div style={styles.reviewFooter}>💖 记住：你永远不是一个人</div>
         </div>
-        <div style={{ ...styles.reviewCard, borderColor: `${roleColor}40` }}>
-          <div style={styles.reviewIcon}><Heart size={32} color={roleColor} /></div>
-          <p style={styles.reviewContent}>{reviewContent}</p>
-        </div>
-        <div style={styles.reviewActions}>
-          <button style={{ ...styles.replayButton, backgroundColor: roleColor }} onClick={replay}><RotateCcw size={18} /> 再来一次</button>
-          <button style={{ ...styles.backButton, borderColor: roleColor, color: roleColor }} onClick={goHome}><Home size={18} /> 返回首页</button>
-        </div>
-        <div style={styles.reviewFooter}>💖 记住：你永远不是一个人</div>
-      </div>
+        <GlobalNotification notification={notification} onDismiss={dismissNotification} />
+      </>
     );
   }
 
-  // 通知 Toast
   return (
     <>
+      <HomeView
+        setView={setView}
+        onQuickStart={(scenario) => {
+          setCurrentScenario(scenario);
+          setView(VIEW.ROLE_SELECT);
+        }}
+      />
       <GlobalNotification notification={notification} onDismiss={dismissNotification} />
     </>
   );
@@ -488,7 +562,7 @@ function GlobalNotification({ notification, onDismiss }) {
 }
 
 // ===== 子视图：首页 =====
-function HomeView({ setView }) {
+function HomeView({ setView, onQuickStart }) {
   const [clickedBtn, setClickedBtn] = useState(null);
   
   const handleClick = (btnId, action) => {
@@ -569,7 +643,7 @@ function HomeView({ setView }) {
           }}
           onClick={() => handleClick('quick', () => { 
             const s = scenarioStorage.getDefaultScenarios()[0]; 
-            if (s) { setCurrentScenarioHome(s); setView(VIEW.ROLE_SELECT); } 
+            if (s) { onQuickStart?.(s); } 
           })}
         >
           <div style={{ ...styles.iconCircle, backgroundColor: '#B8A9D4' }}>
@@ -725,7 +799,7 @@ function StoryInputView({ setView, onScenarioGenerated, generateInBackground }) 
 }
 
 // ===== 子视图：场景库 =====
-function ScenarioLibraryView({ setView, onSelectScenario }) {
+function ScenarioLibraryView({ setView, onSelectScenario, onEditScenario }) {
   const [scenarios, setScenarios] = useState(scenarioStorage.getAll());
   const [activeTab, setActiveTab] = useState('all');
 
@@ -764,7 +838,7 @@ function ScenarioLibraryView({ setView, onSelectScenario }) {
           {displayedScenarios.length === 0 ? (
             <Card style={{ textAlign: 'center', padding: 40 }}>
               <p style={{ color: '#999', fontSize: 16 }}>还没有创建任何场景</p>
-              <Button style={{ marginTop: 16 }} onClick={() => setView(VIEW.SCENARIO_EDITOR)} icon={<Plus size={18} />}>创建第一个场景</Button>
+              <Button style={{ marginTop: 16 }} onClick={() => { onEditScenario?.(null); }} icon={<Plus size={18} />}>创建第一个场景</Button>
             </Card>
           ) : (
             displayedScenarios.map((scenario, i) => (
@@ -784,7 +858,7 @@ function ScenarioLibraryView({ setView, onSelectScenario }) {
                   <button style={styles.actionBtn} onClick={() => onSelectScenario(scenario)} title="开始演练"><Play size={18} color="#7ECEC1" /></button>
                   {!scenario.isDefault && (
                     <>
-                      <button style={styles.actionBtn} onClick={() => { setCurrentScenarioEditor(scenario); setView(VIEW.SCENARIO_EDITOR); }} title="编辑"><Edit3 size={18} color="#FFB366" /></button>
+                      <button style={styles.actionBtn} onClick={() => { onEditScenario?.(scenario); }} title="编辑"><Edit3 size={18} color="#FFB366" /></button>
                       <button style={styles.actionBtn} onClick={() => handleDelete(scenario.id)} title="删除"><Trash2 size={18} color="#FF6B6B" /></button>
                     </>
                   )}
@@ -796,7 +870,7 @@ function ScenarioLibraryView({ setView, onSelectScenario }) {
 
         {/* 创建新场景按钮 */}
         <div style={{ textAlign: 'center', marginTop: 24 }}>
-          <Button onClick={() => { setCurrentScenarioEditor(null); setView(VIEW.SCENARIO_EDITOR); }} icon={<Plus size={18} />} size="large">
+          <Button onClick={() => { onEditScenario?.(null); }} icon={<Plus size={18} />} size="large">
             创建新场景
           </Button>
         </div>
@@ -830,7 +904,8 @@ function ScenarioEditorView({ setView, scenario, onSave }) {
       return;
     }
     setSaving(true);
-    const savedScenario = scenarioStorage.save(form);
+    const updatedScenario = scenario?.id && !scenario?.isDefault ? scenarioStorage.update(scenario.id, form) : null;
+    const savedScenario = updatedScenario || scenarioStorage.save({ ...form, id: undefined });
     setSaving(false);
     onSave(savedScenario);
   };
@@ -1000,11 +1075,6 @@ function ScenarioPreviewView({ setView, scenario, onEdit, onStart }) {
     </div>
   );
 }
-
-// 辅助函数
-function setCurrentScenarioHome(s) { currentScenarioGlobal = s; }
-function setCurrentScenarioEditor(s) { currentScenarioGlobal = s; }
-var currentScenarioGlobal = null;
 
 // ===== 样式 =====
 const styles = {
