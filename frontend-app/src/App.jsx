@@ -2,12 +2,12 @@ import React, { useState, useRef, useEffect } from 'react';
 import { 
   Send, User, Bot, RotateCcw, Star, Heart, Sparkles, 
   ChevronRight, Home, Edit3, BookOpen, Plus, Trash2,
-  ArrowLeft, Save, Wand2, Settings, Eye, Copy, ChevronDown
+  ArrowLeft, Save, Wand2, Settings, Eye, Copy, ChevronDown,
+  Play, Zap, ShieldCheck, HandHeart, MessageCircle, Users
 } from 'lucide-react';
 import { chatWithMiniMax } from './api';
 import { scenarioStorage, saveUserStory, setNotification, getNotification, clearNotification } from './storage';
 import { generateScenarioFromStory, generateScenarioSummary } from './scenarioGenerator';
-import { HOME_IMAGES } from './homeAssets';
 
 const ENCOURAGEMENT_MESSAGES = [
   '太棒了！💪', '你做得很好！✨', '继续加油！🌟', '你的选择很有勇气！💖', '真了不起！🏆',
@@ -290,7 +290,7 @@ export default function App() {
 
   // ===== 视图一：首页 =====
   if (view === VIEW.HOME) {
-    return <HomeView setView={setView} />;
+    return <HomeView setView={setView} setCurrentScenario={setCurrentScenario} />;
   }
 
   // ===== 视图二：讲述故事 =====
@@ -300,7 +300,13 @@ export default function App() {
 
   // ===== 视图三：场景库 =====
   if (view === VIEW.SCENARIO_LIBRARY) {
-    return <ScenarioLibraryView setView={setView} onSelectScenario={(s) => { setCurrentScenario(s); setView(VIEW.ROLE_SELECT); }} />;
+    return (
+      <ScenarioLibraryView
+        setView={setView}
+        onSelectScenario={(s) => { setCurrentScenario(s); setView(VIEW.ROLE_SELECT); }}
+        onEditScenario={(s) => { setCurrentScenario(s); setView(VIEW.SCENARIO_EDITOR); }}
+      />
+    );
   }
 
   // ===== 视图四：场景编辑器 =====
@@ -488,119 +494,710 @@ function GlobalNotification({ notification, onDismiss }) {
 }
 
 // ===== 子视图：首页 =====
-function HomeView({ setView }) {
-  const [clickedBtn, setClickedBtn] = useState(null);
-  
-  const handleClick = (btnId, action) => {
-    setClickedBtn(btnId);
-    setTimeout(() => {
-      action();
-      setClickedBtn(null);
-    }, 300);
+function HomeView({ setView, setCurrentScenario }) {
+  const img = (prompt, imageSize) => {
+    return `https://coresg-normal.trae.ai/api/ide/v1/text_to_image?prompt=${encodeURIComponent(prompt)}&image_size=${imageSize}`;
+  };
+
+  const heroImage = img(
+    'A warm cinematic editorial illustration of Chinese elementary school children walking into a sunlit school corridor, gentle smiles, supportive friendship, soft natural light, modern children book illustration, high detail, subtle grain, uplifting and safe atmosphere, no text, no logo',
+    'landscape_16_9'
+  );
+  const stepsImage = img(
+    'A modern children book illustration showing a three-step journey: a child writing a story, an open book turning into a stage, and a warm heart-shaped badge of confidence, soft pastel colors, clean composition, high detail, subtle paper texture, no text',
+    'portrait_4_3'
+  );
+  const trustImage = img(
+    'Close-up illustration of two small hands gently holding a glowing heart-shaped lantern, warm peach and mint tones, soft rim light, dreamy yet realistic, subtle grain, high detail, no text',
+    'square_hd'
+  );
+
+  const handleQuickStart = () => {
+    const s = scenarioStorage.getDefaultScenarios()[0];
+    if (s) {
+      setCurrentScenario(s);
+      setView(VIEW.ROLE_SELECT);
+      return;
+    }
+    setView(VIEW.SCENARIO_LIBRARY);
   };
 
   return (
-    <div style={styles.mobileHomeContainer}>
-      {/* 顶部标题 */}
-      <div style={styles.mobileHeader}>
-        <div style={styles.mobileBadge}>🌈 儿童反欺凌教育</div>
-        <h1 style={styles.mobileTitle}>《别想欺负我》</h1>
-        <p style={styles.mobileSubtitle}>用AI和角色扮演，帮助孩子学会保护自己</p>
+    <div className="landing">
+      <div className="landingBg" aria-hidden="true">
+        <div className="orb orbA" />
+        <div className="orb orbB" />
+        <div className="orb orbC" />
       </div>
 
-      {/* 悬浮装饰 */}
-      <div style={styles.floatingDecorations}>
-        <span style={{ ...styles.floatEmoji, top: '5%', left: '10%', animationDelay: '0s' }}>⭐</span>
-        <span style={{ ...styles.floatEmoji, top: '15%', right: '8%', animationDelay: '0.5s' }}>✨</span>
-        <span style={{ ...styles.floatEmoji, top: '60%', left: '5%', animationDelay: '1s' }}>🌟</span>
-        <span style={{ ...styles.floatEmoji, top: '70%', right: '10%', animationDelay: '1.5s' }}>💫</span>
-      </div>
-
-      {/* 主图区域 */}
-      <div style={styles.mobileHeroWrapper}>
-        <img 
-          src={HOME_IMAGES.hero.url} 
-          alt="温馨校园"
-          style={styles.mobileHeroImage}
-        />
-      </div>
-
-      {/* 可爱图标按钮区 */}
-      <div style={styles.iconButtonGrid}>
-        
-        {/* 我来描述 */}
-        <button 
-          style={{
-            ...styles.iconButton,
-            backgroundColor: clickedBtn === 'story' ? '#FFE4CC' : '#FFF8F0',
-            transform: clickedBtn === 'story' ? 'scale(0.95)' : 'scale(1)',
-          }}
-          onClick={() => handleClick('story', () => setView(VIEW.STORY_INPUT))}
-        >
-          <div style={{ ...styles.iconCircle, backgroundColor: '#FFB366' }}>
-            <Wand2 size={28} color="#fff" />
+      <header className="landingNav">
+        <div className="navInner">
+          <div className="brand">
+            <span className="brandMark" aria-hidden="true">✦</span>
+            <span className="brandName">别想欺负我</span>
+            <span className="brandTag">儿童反欺凌教育</span>
           </div>
-          <span style={styles.iconLabel}>✨ 我来描述</span>
-          <span style={styles.iconHint}>AI帮你写剧本</span>
-        </button>
+          <nav className="navLinks" aria-label="首页导航">
+            <button className="navLink" onClick={() => setView(VIEW.SCENARIO_LIBRARY)}>场景库</button>
+            <button className="navLink" onClick={() => setView(VIEW.STORY_INPUT)}>生成剧本</button>
+          </nav>
+          <button className="navCta" onClick={() => setView(VIEW.STORY_INPUT)}>
+            <Sparkles size={18} /> 立即开始
+          </button>
+        </div>
+      </header>
 
-        {/* 场景库 */}
-        <button 
-          style={{
-            ...styles.iconButton,
-            backgroundColor: clickedBtn === 'library' ? '#D4F5F0' : '#F0FFFE',
-            transform: clickedBtn === 'library' ? 'scale(0.95)' : 'scale(1)',
-          }}
-          onClick={() => handleClick('library', () => setView(VIEW.SCENARIO_LIBRARY))}
-        >
-          <div style={{ ...styles.iconCircle, backgroundColor: '#7ECEC1' }}>
-            <BookOpen size={28} color="#fff" />
+      <main className="landingMain">
+        <section className="hero">
+          <div className="heroText">
+            <div className="heroKicker">
+              <span className="kickerPill">安全空间</span>
+              <span className="kickerPill kickerPillAlt">可重复练习</span>
+              <span className="kickerPill kickerPillAlt2">温暖不评判</span>
+            </div>
+            <h1 className="heroTitle">
+              把“说不出口”的经历<br />变成能练习的勇敢
+            </h1>
+            <p className="heroSub">
+              用 AI 把你的故事写成剧本，再用角色扮演练习回应与求助。每一次表达，都更接近自信与安全感。
+            </p>
+
+            <div className="heroActions">
+              <button className="primaryBtn" onClick={() => setView(VIEW.STORY_INPUT)}>
+                <Wand2 size={18} /> 我来描述（生成剧本）
+              </button>
+              <button className="secondaryBtn" onClick={() => setView(VIEW.SCENARIO_LIBRARY)}>
+                <BookOpen size={18} /> 去场景库看看
+              </button>
+              <button className="ghostBtn" onClick={handleQuickStart}>
+                <Zap size={18} /> 快速开始
+              </button>
+            </div>
+
+            <div className="heroBadges">
+              <div className="miniBadge">
+                <ShieldCheck size={16} /> 温和引导
+              </div>
+              <div className="miniBadge">
+                <MessageCircle size={16} /> 练习表达
+              </div>
+              <div className="miniBadge">
+                <HandHeart size={16} /> 学会求助
+              </div>
+            </div>
           </div>
-          <span style={styles.iconLabel}>📚 场景库</span>
-          <span style={styles.iconHint}>选择或管理剧本</span>
-        </button>
 
-        {/* 快速开始 */}
-        <button 
-          style={{
-            ...styles.iconButton,
-            backgroundColor: clickedBtn === 'quick' ? '#E8E0F5' : '#F8F5FF',
-            transform: clickedBtn === 'quick' ? 'scale(0.95)' : 'scale(1)',
-          }}
-          onClick={() => handleClick('quick', () => { 
-            const s = scenarioStorage.getDefaultScenarios()[0]; 
-            if (s) { setCurrentScenarioHome(s); setView(VIEW.ROLE_SELECT); } 
-          })}
-        >
-          <div style={{ ...styles.iconCircle, backgroundColor: '#B8A9D4' }}>
-            <Zap size={28} color="#fff" />
+          <div className="heroMedia">
+            <div className="heroFrame">
+              <img className="heroImg" src={heroImage} alt="温暖的校园与支持的友谊" />
+              <div className="heroGlow" aria-hidden="true" />
+            </div>
+            <div className="heroCaption">
+              你不需要“完美回答”，只需要“开始练习”。
+            </div>
           </div>
-          <span style={styles.iconLabel}>⚡ 快速开始</span>
-          <span style={styles.iconHint}>直接体验场景</span>
-        </button>
+        </section>
 
-      </div>
+        <section className="section">
+          <div className="sectionHeader">
+            <h2 className="sectionTitle">三步把经历变成力量</h2>
+            <p className="sectionDesc">从故事到剧本，从剧本到演练，从演练到复盘建议。</p>
+          </div>
+          <div className="steps">
+            <div className="stepsCard">
+              <div className="step">
+                <div className="stepNum">01</div>
+                <div className="stepBody">
+                  <div className="stepTitle">讲述你的故事</div>
+                  <div className="stepText">不用写得好，只要真实。我们会帮助你把重点说清楚。</div>
+                </div>
+              </div>
+              <div className="step">
+                <div className="stepNum">02</div>
+                <div className="stepBody">
+                  <div className="stepTitle">生成专属剧本</div>
+                  <div className="stepText">把场景拆成角色、对话轮次与开场旁白，让演练更像真的发生过。</div>
+                </div>
+              </div>
+              <div className="step">
+                <div className="stepNum">03</div>
+                <div className="stepBody">
+                  <div className="stepTitle">角色扮演 + 复盘</div>
+                  <div className="stepText">练习回应、设边界、求助方式，并得到一份温暖具体的复盘报告。</div>
+                </div>
+              </div>
+            </div>
+            <div className="stepsMedia">
+              <img className="stepsImg" src={stepsImage} alt="从故事到演练的三步示意插画" />
+              <div className="stepsNote">
+                <div className="stepsNoteTitle">适合亲子一起做</div>
+                <div className="stepsNoteText">家长/老师可以用“旁观者/支持者”的角色参与，学会更好的陪伴方式。</div>
+              </div>
+            </div>
+          </div>
+        </section>
 
-      {/* 底部寄语 */}
-      <div style={styles.mobileFooter}>
-        <p style={styles.mobileFooterText}>💖 每一个勇敢表达的孩子，都值得被守护</p>
-      </div>
+        <section className="section">
+          <div className="sectionHeader">
+            <h2 className="sectionTitle">你会在这里得到什么</h2>
+            <p className="sectionDesc">不仅是“知道”，更是“做得到”。</p>
+          </div>
+          <div className="featureGrid">
+            {[
+              { icon: <Wand2 size={18} />, title: '把经历写成剧本', desc: '更贴近真实困扰，练习有针对性。' },
+              { icon: <Users size={18} />, title: '多角色视角', desc: '被针对者、旁观者、起哄者、观察者，换位理解更完整。' },
+              { icon: <MessageCircle size={18} />, title: '对话演练', desc: '一句一句练习回应，逐渐建立边界感与表达能力。' },
+              { icon: <Heart size={18} />, title: '温暖复盘报告', desc: '把你做得好的地方讲清楚，也给出下一次更稳的选择。' },
+            ].map((f, i) => (
+              <div key={i} className="featureCard">
+                <div className="featureIcon">{f.icon}</div>
+                <div className="featureTitle">{f.title}</div>
+                <div className="featureDesc">{f.desc}</div>
+              </div>
+            ))}
+          </div>
+        </section>
+
+        <section className="section trust">
+          <div className="trustCard">
+            <div className="trustText">
+              <h2 className="sectionTitle">温柔，但不软弱</h2>
+              <p className="sectionDesc">
+                这里不是“评判对错”的地方，而是一个能反复练习的空间。你可以用自己的节奏，慢慢学会说出不舒服、表达需求、寻求帮助。
+              </p>
+              <div className="trustActions">
+                <button className="primaryBtn" onClick={() => setView(VIEW.STORY_INPUT)}>
+                  <Sparkles size={18} /> 现在就开始练
+                </button>
+                <button className="secondaryBtn" onClick={() => setView(VIEW.SCENARIO_LIBRARY)}>
+                  <Play size={18} /> 先体验一个场景
+                </button>
+              </div>
+            </div>
+            <div className="trustMedia">
+              <img className="trustImg" src={trustImage} alt="被温柔守护的心灯" />
+              <div className="trustTag">你值得被守护</div>
+            </div>
+          </div>
+        </section>
+
+        <footer className="landingFooter">
+          <div className="footerInner">
+            <div className="footerLine">
+              <span className="footerDot" aria-hidden="true" />
+              <span>每一次勇敢表达，都会被温柔接住。</span>
+            </div>
+            <button className="footerCta" onClick={() => setView(VIEW.STORY_INPUT)}>
+              <Wand2 size={18} /> 生成我的专属剧本
+            </button>
+          </div>
+        </footer>
+      </main>
 
       <style>{`
-        @keyframes floatIn { 
-          from { opacity: 0; transform: translateY(20px); } 
-          to { opacity: 1; transform: translateY(0); } 
+        .landing {
+          min-height: 100vh;
+          background: radial-gradient(1200px 900px at 12% 10%, rgba(255, 179, 102, 0.28), transparent 60%),
+                      radial-gradient(900px 700px at 85% 15%, rgba(126, 206, 193, 0.22), transparent 55%),
+                      radial-gradient(1000px 800px at 70% 90%, rgba(184, 169, 212, 0.22), transparent 55%),
+                      linear-gradient(180deg, #FEFCF8 0%, #FAFAFD 80%);
+          color: #1c1b1f;
+          position: relative;
+          overflow-x: hidden;
+          font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
         }
-        @keyframes float { 
-          0%, 100% { transform: translateY(0px) rotate(0deg); opacity: 0.7; }
-          50% { transform: translateY(-15px) rotate(5deg); opacity: 1; }
+        .landingBg {
+          position: absolute;
+          inset: 0;
+          pointer-events: none;
+          z-index: 0;
+          filter: blur(2px);
         }
-        @keyframes bounce { 
-          0%, 100% { transform: scale(1); }
-          50% { transform: scale(1.1); }
+        .orb {
+          position: absolute;
+          border-radius: 999px;
+          opacity: 0.7;
+          mix-blend-mode: multiply;
+          transform: translateZ(0);
+          animation: drift 10s ease-in-out infinite;
         }
-        .icon-btn:active {
-          animation: bounce 0.3s ease;
+        .orbA {
+          width: 420px;
+          height: 420px;
+          left: -120px;
+          top: 220px;
+          background: radial-gradient(circle at 30% 30%, rgba(255, 179, 102, 0.65), rgba(255, 179, 102, 0.15) 55%, transparent 70%);
+          animation-duration: 12s;
+        }
+        .orbB {
+          width: 520px;
+          height: 520px;
+          right: -180px;
+          top: 80px;
+          background: radial-gradient(circle at 55% 35%, rgba(126, 206, 193, 0.55), rgba(126, 206, 193, 0.12) 55%, transparent 70%);
+          animation-duration: 14s;
+          animation-delay: -2s;
+        }
+        .orbC {
+          width: 520px;
+          height: 520px;
+          right: 18%;
+          bottom: -240px;
+          background: radial-gradient(circle at 40% 30%, rgba(184, 169, 212, 0.55), rgba(184, 169, 212, 0.12) 55%, transparent 70%);
+          animation-duration: 16s;
+          animation-delay: -4s;
+        }
+        .landingNav {
+          position: sticky;
+          top: 0;
+          z-index: 10;
+          backdrop-filter: blur(10px);
+          background: rgba(254, 252, 248, 0.7);
+          border-bottom: 1px solid rgba(0,0,0,0.06);
+        }
+        .navInner {
+          max-width: 1120px;
+          margin: 0 auto;
+          padding: 14px 20px;
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 18px;
+        }
+        .brand {
+          display: flex;
+          align-items: baseline;
+          gap: 10px;
+          letter-spacing: -0.2px;
+          white-space: nowrap;
+        }
+        .brandMark {
+          width: 34px;
+          height: 34px;
+          border-radius: 12px;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          background: linear-gradient(135deg, rgba(255, 179, 102, 0.28), rgba(126, 206, 193, 0.18));
+          box-shadow: 0 10px 30px rgba(255, 179, 102, 0.18);
+          font-weight: 900;
+        }
+        .brandName {
+          font-size: 16px;
+          font-weight: 850;
+        }
+        .brandTag {
+          font-size: 12px;
+          font-weight: 650;
+          color: rgba(28, 27, 31, 0.55);
+          padding-left: 8px;
+          border-left: 1px solid rgba(0,0,0,0.1);
+        }
+        .navLinks {
+          display: flex;
+          gap: 8px;
+          align-items: center;
+        }
+        .navLink {
+          border: none;
+          background: transparent;
+          cursor: pointer;
+          font-weight: 650;
+          color: rgba(28, 27, 31, 0.7);
+          padding: 10px 12px;
+          border-radius: 12px;
+          transition: background 0.15s ease, color 0.15s ease;
+        }
+        .navLink:hover {
+          background: rgba(0,0,0,0.04);
+          color: rgba(28, 27, 31, 0.9);
+        }
+        .navCta {
+          display: inline-flex;
+          align-items: center;
+          gap: 10px;
+          border: none;
+          cursor: pointer;
+          padding: 10px 14px;
+          border-radius: 14px;
+          font-weight: 750;
+          color: #fff;
+          background: linear-gradient(135deg, #FF9F40, #FFB366);
+          box-shadow: 0 14px 30px rgba(255, 179, 102, 0.26);
+          transition: transform 0.15s ease, box-shadow 0.15s ease;
+          white-space: nowrap;
+        }
+        .navCta:hover {
+          transform: translateY(-1px);
+          box-shadow: 0 18px 40px rgba(255, 179, 102, 0.32);
+        }
+        .landingMain {
+          position: relative;
+          z-index: 1;
+          max-width: 1120px;
+          margin: 0 auto;
+          padding: 28px 20px 64px;
+        }
+        .hero {
+          display: grid;
+          grid-template-columns: 1.08fr 0.92fr;
+          gap: 26px;
+          align-items: center;
+          padding: 22px 0 10px;
+        }
+        .heroText {
+          padding: 18px 4px;
+        }
+        .heroKicker {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 8px;
+          margin-bottom: 14px;
+        }
+        .kickerPill {
+          display: inline-flex;
+          align-items: center;
+          padding: 6px 10px;
+          border-radius: 999px;
+          font-weight: 750;
+          font-size: 12px;
+          background: rgba(255, 179, 102, 0.18);
+          color: #C56C1E;
+          border: 1px solid rgba(255, 179, 102, 0.28);
+        }
+        .kickerPillAlt {
+          background: rgba(126, 206, 193, 0.16);
+          color: #2E8B7F;
+          border-color: rgba(126, 206, 193, 0.26);
+        }
+        .kickerPillAlt2 {
+          background: rgba(184, 169, 212, 0.18);
+          color: #6B5B93;
+          border-color: rgba(184, 169, 212, 0.26);
+        }
+        .heroTitle {
+          font-size: 48px;
+          line-height: 1.04;
+          margin: 0 0 14px 0;
+          letter-spacing: -1px;
+          font-weight: 900;
+        }
+        .heroSub {
+          margin: 0 0 18px 0;
+          font-size: 16px;
+          line-height: 1.7;
+          color: rgba(28, 27, 31, 0.68);
+          max-width: 44ch;
+        }
+        .heroActions {
+          display: flex;
+          gap: 10px;
+          flex-wrap: wrap;
+          margin-bottom: 16px;
+        }
+        .primaryBtn, .secondaryBtn, .ghostBtn {
+          border: none;
+          cursor: pointer;
+          display: inline-flex;
+          align-items: center;
+          gap: 10px;
+          padding: 12px 14px;
+          border-radius: 16px;
+          font-weight: 750;
+          transition: transform 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
+        }
+        .primaryBtn {
+          color: #fff;
+          background: linear-gradient(135deg, #FF9F40, #FFB366);
+          box-shadow: 0 14px 30px rgba(255, 179, 102, 0.26);
+        }
+        .primaryBtn:hover { transform: translateY(-1px); box-shadow: 0 18px 40px rgba(255, 179, 102, 0.32); }
+        .secondaryBtn {
+          background: rgba(255,255,255,0.75);
+          color: rgba(28, 27, 31, 0.85);
+          border: 1px solid rgba(0,0,0,0.08);
+          box-shadow: 0 10px 24px rgba(0,0,0,0.06);
+        }
+        .secondaryBtn:hover { transform: translateY(-1px); box-shadow: 0 14px 30px rgba(0,0,0,0.08); }
+        .ghostBtn {
+          background: transparent;
+          color: rgba(28, 27, 31, 0.72);
+          border: 1px dashed rgba(0,0,0,0.14);
+        }
+        .ghostBtn:hover { background: rgba(255,255,255,0.5); transform: translateY(-1px); }
+        .heroBadges {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 10px;
+          margin-top: 8px;
+        }
+        .miniBadge {
+          display: inline-flex;
+          align-items: center;
+          gap: 8px;
+          font-size: 13px;
+          font-weight: 650;
+          padding: 10px 12px;
+          border-radius: 16px;
+          background: rgba(255,255,255,0.6);
+          border: 1px solid rgba(0,0,0,0.06);
+          box-shadow: 0 10px 24px rgba(0,0,0,0.05);
+        }
+        .heroMedia {
+          display: flex;
+          flex-direction: column;
+          gap: 10px;
+        }
+        .heroFrame {
+          position: relative;
+          border-radius: 26px;
+          overflow: hidden;
+          border: 1px solid rgba(0,0,0,0.08);
+          background: rgba(255,255,255,0.55);
+          box-shadow: 0 30px 80px rgba(0,0,0,0.12);
+          transform: translateZ(0);
+        }
+        .heroImg {
+          display: block;
+          width: 100%;
+          height: auto;
+          object-fit: cover;
+          filter: saturate(1.05) contrast(1.03);
+        }
+        .heroGlow {
+          position: absolute;
+          inset: -30%;
+          background: radial-gradient(circle at 30% 20%, rgba(255, 179, 102, 0.35), transparent 60%),
+                      radial-gradient(circle at 80% 70%, rgba(126, 206, 193, 0.28), transparent 55%);
+          opacity: 0.6;
+          pointer-events: none;
+        }
+        .heroCaption {
+          font-size: 13px;
+          font-weight: 650;
+          color: rgba(28, 27, 31, 0.6);
+          padding: 10px 12px;
+          border-radius: 16px;
+          background: rgba(255,255,255,0.55);
+          border: 1px solid rgba(0,0,0,0.06);
+        }
+        .section {
+          margin-top: 44px;
+        }
+        .sectionHeader {
+          display: flex;
+          align-items: baseline;
+          justify-content: space-between;
+          gap: 14px;
+          margin-bottom: 16px;
+          flex-wrap: wrap;
+        }
+        .sectionTitle {
+          margin: 0;
+          font-size: 24px;
+          font-weight: 900;
+          letter-spacing: -0.4px;
+        }
+        .sectionDesc {
+          margin: 0;
+          color: rgba(28, 27, 31, 0.62);
+          font-size: 14px;
+          line-height: 1.6;
+          max-width: 64ch;
+        }
+        .steps {
+          display: grid;
+          grid-template-columns: 1fr 0.92fr;
+          gap: 18px;
+        }
+        .stepsCard {
+          border-radius: 24px;
+          border: 1px solid rgba(0,0,0,0.08);
+          background: rgba(255,255,255,0.72);
+          box-shadow: 0 18px 50px rgba(0,0,0,0.07);
+          padding: 18px;
+        }
+        .step {
+          display: flex;
+          gap: 14px;
+          padding: 14px;
+          border-radius: 18px;
+        }
+        .step + .step { border-top: 1px dashed rgba(0,0,0,0.12); border-radius: 0; }
+        .stepNum {
+          width: 52px;
+          height: 52px;
+          border-radius: 16px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          font-weight: 950;
+          letter-spacing: 0.4px;
+          background: linear-gradient(135deg, rgba(255, 179, 102, 0.22), rgba(184, 169, 212, 0.18));
+          color: rgba(28, 27, 31, 0.76);
+        }
+        .stepTitle { font-weight: 850; margin-bottom: 6px; }
+        .stepText { color: rgba(28, 27, 31, 0.62); line-height: 1.6; font-size: 14px; }
+        .stepsMedia {
+          display: flex;
+          flex-direction: column;
+          gap: 12px;
+        }
+        .stepsImg {
+          width: 100%;
+          border-radius: 24px;
+          border: 1px solid rgba(0,0,0,0.08);
+          box-shadow: 0 18px 50px rgba(0,0,0,0.08);
+          background: rgba(255,255,255,0.55);
+        }
+        .stepsNote {
+          padding: 14px 16px;
+          border-radius: 22px;
+          background: rgba(255,255,255,0.62);
+          border: 1px solid rgba(0,0,0,0.06);
+          box-shadow: 0 14px 36px rgba(0,0,0,0.06);
+        }
+        .stepsNoteTitle { font-weight: 900; margin-bottom: 6px; }
+        .stepsNoteText { color: rgba(28, 27, 31, 0.62); line-height: 1.6; font-size: 14px; }
+
+        .featureGrid {
+          display: grid;
+          grid-template-columns: repeat(4, 1fr);
+          gap: 12px;
+        }
+        .featureCard {
+          border-radius: 22px;
+          padding: 16px 16px 18px;
+          background: rgba(255,255,255,0.72);
+          border: 1px solid rgba(0,0,0,0.08);
+          box-shadow: 0 14px 36px rgba(0,0,0,0.06);
+          transition: transform 0.15s ease, box-shadow 0.15s ease;
+        }
+        .featureCard:hover { transform: translateY(-2px); box-shadow: 0 20px 48px rgba(0,0,0,0.08); }
+        .featureIcon {
+          width: 44px;
+          height: 44px;
+          border-radius: 16px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          background: linear-gradient(135deg, rgba(255, 179, 102, 0.18), rgba(126, 206, 193, 0.14));
+          color: rgba(28, 27, 31, 0.85);
+          margin-bottom: 10px;
+        }
+        .featureTitle { font-weight: 900; margin-bottom: 6px; }
+        .featureDesc { color: rgba(28, 27, 31, 0.62); line-height: 1.6; font-size: 14px; }
+
+        .trustCard {
+          border-radius: 28px;
+          padding: 18px;
+          background: linear-gradient(135deg, rgba(255, 179, 102, 0.12), rgba(126, 206, 193, 0.12), rgba(184, 169, 212, 0.12));
+          border: 1px solid rgba(0,0,0,0.08);
+          box-shadow: 0 22px 60px rgba(0,0,0,0.08);
+          display: grid;
+          grid-template-columns: 1.15fr 0.85fr;
+          gap: 16px;
+          align-items: center;
+        }
+        .trustText { padding: 12px 12px 14px; }
+        .trustActions { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 14px; }
+        .trustMedia {
+          position: relative;
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          gap: 10px;
+        }
+        .trustImg {
+          width: 100%;
+          max-width: 320px;
+          border-radius: 24px;
+          border: 1px solid rgba(0,0,0,0.08);
+          box-shadow: 0 20px 50px rgba(0,0,0,0.12);
+          background: rgba(255,255,255,0.6);
+        }
+        .trustTag {
+          position: absolute;
+          bottom: 14px;
+          left: 50%;
+          transform: translateX(-50%);
+          padding: 8px 12px;
+          border-radius: 999px;
+          background: rgba(28, 27, 31, 0.72);
+          color: #fff;
+          font-weight: 750;
+          font-size: 12px;
+          border: 1px solid rgba(255,255,255,0.25);
+        }
+
+        .landingFooter {
+          margin-top: 46px;
+          padding: 20px 0 0;
+        }
+        .footerInner {
+          border-radius: 26px;
+          background: rgba(255,255,255,0.72);
+          border: 1px solid rgba(0,0,0,0.08);
+          box-shadow: 0 18px 50px rgba(0,0,0,0.07);
+          padding: 18px 18px;
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 14px;
+          flex-wrap: wrap;
+        }
+        .footerLine {
+          display: inline-flex;
+          align-items: center;
+          gap: 10px;
+          font-weight: 750;
+          color: rgba(28, 27, 31, 0.68);
+        }
+        .footerDot {
+          width: 10px;
+          height: 10px;
+          border-radius: 999px;
+          background: linear-gradient(135deg, #FF9F40, #7ECEC1);
+          box-shadow: 0 10px 20px rgba(255, 179, 102, 0.22);
+        }
+        .footerCta {
+          border: none;
+          cursor: pointer;
+          display: inline-flex;
+          align-items: center;
+          gap: 10px;
+          padding: 12px 14px;
+          border-radius: 16px;
+          font-weight: 850;
+          color: #fff;
+          background: rgba(28, 27, 31, 0.92);
+          box-shadow: 0 16px 34px rgba(0,0,0,0.18);
+          transition: transform 0.15s ease, box-shadow 0.15s ease;
+        }
+        .footerCta:hover { transform: translateY(-1px); box-shadow: 0 20px 44px rgba(0,0,0,0.22); }
+
+        @keyframes drift {
+          0%, 100% { transform: translate3d(0, 0, 0) scale(1); }
+          50% { transform: translate3d(0, -18px, 0) scale(1.03); }
+        }
+
+        @media (max-width: 980px) {
+          .hero { grid-template-columns: 1fr; }
+          .heroTitle { font-size: 40px; }
+          .steps { grid-template-columns: 1fr; }
+          .trustCard { grid-template-columns: 1fr; }
+          .featureGrid { grid-template-columns: repeat(2, 1fr); }
+          .navLinks { display: none; }
+        }
+        @media (max-width: 520px) {
+          .heroTitle { font-size: 34px; }
+          .featureGrid { grid-template-columns: 1fr; }
+          .navInner { padding: 12px 14px; }
+          .landingMain { padding: 22px 14px 54px; }
+          .navCta { padding: 10px 12px; }
+        }
+        @media (prefers-reduced-motion: reduce) {
+          .orb { animation: none; }
         }
       `}</style>
     </div>
@@ -725,7 +1322,7 @@ function StoryInputView({ setView, onScenarioGenerated, generateInBackground }) 
 }
 
 // ===== 子视图：场景库 =====
-function ScenarioLibraryView({ setView, onSelectScenario }) {
+function ScenarioLibraryView({ setView, onSelectScenario, onEditScenario }) {
   const [scenarios, setScenarios] = useState(scenarioStorage.getAll());
   const [activeTab, setActiveTab] = useState('all');
 
@@ -764,7 +1361,7 @@ function ScenarioLibraryView({ setView, onSelectScenario }) {
           {displayedScenarios.length === 0 ? (
             <Card style={{ textAlign: 'center', padding: 40 }}>
               <p style={{ color: '#999', fontSize: 16 }}>还没有创建任何场景</p>
-              <Button style={{ marginTop: 16 }} onClick={() => setView(VIEW.SCENARIO_EDITOR)} icon={<Plus size={18} />}>创建第一个场景</Button>
+              <Button style={{ marginTop: 16 }} onClick={() => onEditScenario(null)} icon={<Plus size={18} />}>创建第一个场景</Button>
             </Card>
           ) : (
             displayedScenarios.map((scenario, i) => (
@@ -784,7 +1381,7 @@ function ScenarioLibraryView({ setView, onSelectScenario }) {
                   <button style={styles.actionBtn} onClick={() => onSelectScenario(scenario)} title="开始演练"><Play size={18} color="#7ECEC1" /></button>
                   {!scenario.isDefault && (
                     <>
-                      <button style={styles.actionBtn} onClick={() => { setCurrentScenarioEditor(scenario); setView(VIEW.SCENARIO_EDITOR); }} title="编辑"><Edit3 size={18} color="#FFB366" /></button>
+                      <button style={styles.actionBtn} onClick={() => onEditScenario(scenario)} title="编辑"><Edit3 size={18} color="#FFB366" /></button>
                       <button style={styles.actionBtn} onClick={() => handleDelete(scenario.id)} title="删除"><Trash2 size={18} color="#FF6B6B" /></button>
                     </>
                   )}
@@ -796,7 +1393,7 @@ function ScenarioLibraryView({ setView, onSelectScenario }) {
 
         {/* 创建新场景按钮 */}
         <div style={{ textAlign: 'center', marginTop: 24 }}>
-          <Button onClick={() => { setCurrentScenarioEditor(null); setView(VIEW.SCENARIO_EDITOR); }} icon={<Plus size={18} />} size="large">
+          <Button onClick={() => onEditScenario(null)} icon={<Plus size={18} />} size="large">
             创建新场景
           </Button>
         </div>
@@ -1000,11 +1597,6 @@ function ScenarioPreviewView({ setView, scenario, onEdit, onStart }) {
     </div>
   );
 }
-
-// 辅助函数
-function setCurrentScenarioHome(s) { currentScenarioGlobal = s; }
-function setCurrentScenarioEditor(s) { currentScenarioGlobal = s; }
-var currentScenarioGlobal = null;
 
 // ===== 样式 =====
 const styles = {
@@ -1366,7 +1958,3 @@ styleSheet.textContent = `
   @keyframes slideInDown { from { transform: translateX(-50%) translateY(-20px); opacity: 0; } to { transform: translateX(-50%) translateY(0); opacity: 1; } }
 `;
 document.head.appendChild(styleSheet);
-
-// 缺失的导入
-function Play(props) { return <svg {...props} viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>; }
-function Zap(props) { return <svg {...props} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>; }
