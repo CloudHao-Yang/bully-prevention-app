@@ -25,11 +25,11 @@ export function getSpeechSynthesis() {
 let audioPlayer = null;
 let audioUrl = null;
 
-async function speakByDoubaoTts(text) {
+async function speakByDoubaoTts(text, { speaker } = {}) {
   const response = await fetch('/api/doubao/tts', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ text }),
+    body: JSON.stringify({ text, ...(speaker ? { speaker } : {}) }),
   });
 
   if (!response.ok) {
@@ -76,17 +76,18 @@ export function speakText(text, { lang = 'zh-CN', rate = 1, pitch = 1, volume = 
 export async function speakCloud(text) {
   const clean = (text || '').trim();
   if (!clean) return;
+  const speaker = arguments.length > 1 && arguments[1] ? arguments[1].speaker : undefined;
   stopSpeaking();
-  await speakByDoubaoTts(clean);
+  await speakByDoubaoTts(clean, { speaker });
 }
 
-export async function speak(text, { fallbackToBrowserTts = true } = {}) {
+export async function speak(text, { fallbackToBrowserTts = true, speaker } = {}) {
   const clean = (text || '').trim();
   if (!clean) return;
 
   stopSpeaking();
   try {
-    await speakByDoubaoTts(clean);
+    await speakByDoubaoTts(clean, { speaker });
   } catch (error) {
     if (fallbackToBrowserTts) {
       speakText(clean);

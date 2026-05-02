@@ -129,6 +129,15 @@ const quickReplies = [
   '我先去找老师说一下这件事。',
 ];
 
+const DOUBAO_SPEAKERS = {
+  narrator: 'zh_female_xiaoxue_uranus_bigtts',
+  boy: 'zh_male_naiqimengwa_uranus_bigtts',
+  man: 'zh_male_ruyayichen_uranus_bigtts',
+  girl: 'zh_female_linjianvhai_uranus_bigtts',
+  woman: 'zh_female_kefunvsheng_uranus_bigtts',
+  teacher: 'zh_female_yingyujiaoxue_uranus_bigtts',
+};
+
 const simulationBeats = {
   assertive: {
     npc: '小刚撇了撇嘴：“哎呀，开个玩笑而已，这么认真干嘛？”',
@@ -351,7 +360,7 @@ export default function App() {
       },
     ]);
     if (voiceEnabled) {
-      speak(nextBeat.npc);
+      speak(nextBeat.npc, { speaker: DOUBAO_SPEAKERS.narrator });
     }
     setRound(nextRound);
     setCurrentFeedback(nextBeat.feedback || fallbackFeedback);
@@ -528,6 +537,7 @@ export default function App() {
             stop: stopVoice,
             supported: Boolean(window.SpeechRecognition || window.webkitSpeechRecognition),
             speakCloud,
+            ttsSpeaker: DOUBAO_SPEAKERS.narrator,
           }}
         />
       )}
@@ -773,6 +783,7 @@ function PracticeView({
   const VoiceIcon = voiceSupported ? (voice?.isListening ? MicOff : Mic) : MicOff;
   const SpeakerIcon = voice?.enabled ? Volume2 : VolumeX;
   const [ttsTestStatus, setTtsTestStatus] = useState('');
+  const ttsSpeaker = voice?.ttsSpeaker || DOUBAO_SPEAKERS.narrator;
 
   return (
     <section className="practice-screen">
@@ -808,7 +819,7 @@ function PracticeView({
               scenario.prompt;
             setTtsTestStatus('TTS 测试中...');
             try {
-              await voice?.speakCloud?.(candidate);
+              await voice?.speakCloud?.(candidate, { speaker: ttsSpeaker });
               setTtsTestStatus('TTS 测试成功');
             } catch (error) {
               const message = typeof error?.message === 'string' ? error.message : 'TTS 测试失败';
