@@ -16,6 +16,8 @@ import {
   Users,
 } from 'lucide-react';
 import { HOME_IMAGES } from './homeAssets';
+import { generateScenarioFromStory } from './scenarioGenerator';
+import { generatePracticeBeat } from './practiceGenerator';
 import './App.css';
 
 const VIEW = {
@@ -27,7 +29,7 @@ const VIEW = {
   STORY: 'story',
 };
 
-const scenarios = [
+const DEFAULT_SCENARIOS = [
   {
     id: 'nickname',
     title: '被起外号',
@@ -39,6 +41,9 @@ const scenarios = [
     summary: '同学反复用难听外号开玩笑，周围有人跟着笑。',
     opening: '课间，你刚走进教室，小刚故意提高声音喊出那个外号。几位同学看了过来。',
     prompt: '你现在最自然的反应是什么？',
+    isDefault: true,
+    createdBy: 'system',
+    createdAt: 0,
   },
   {
     id: 'excluded',
@@ -51,6 +56,9 @@ const scenarios = [
     summary: '游戏分组时，有人暗示大家不要选你。',
     opening: '体育课要分组，小雨拉着几个同学小声说：“别和他一组，会拖后腿。”',
     prompt: '你准备怎么处理这个局面？',
+    isDefault: true,
+    createdBy: 'system',
+    createdAt: 0,
   },
   {
     id: 'groupchat',
@@ -63,6 +71,9 @@ const scenarios = [
     summary: '群聊里有人用表情和暗号持续嘲笑同学。',
     opening: '晚上，班级群里突然刷起一排表情包，几句话没有点名，但大家都知道是在说小明。',
     prompt: '你会在群里怎么说，或者先做什么？',
+    isDefault: true,
+    createdBy: 'system',
+    createdAt: 0,
   },
 ];
 
@@ -168,9 +179,47 @@ const fallbackFeedback = {
 
 const fallbackTip = '先按你最自然的反应说一句，系统会继续推演现场会怎样变化。';
 
+const USER_SCENARIO_STORAGE_KEY = 'bully_user_scenarios_v2';
+
+function loadUserScenarios() {
+  try {
+    const stored = localStorage.getItem(USER_SCENARIO_STORAGE_KEY);
+    if (!stored) return [];
+    const parsed = JSON.parse(stored);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter((item) => item && typeof item === 'object' && item.id && !item.isDefault);
+  } catch (error) {
+    return [];
+  }
+}
+
+function saveUserScenarios(scenarios) {
+  try {
+    const userOnly = scenarios.filter((scenario) => scenario && !scenario.isDefault);
+    localStorage.setItem(USER_SCENARIO_STORAGE_KEY, JSON.stringify(userOnly));
+  } catch (error) {
+  }
+}
+
+function getScenarioOpening(scenario, role) {
+  if (scenario?.openings && role?.id && scenario.openings[role.id]) return scenario.openings[role.id];
+  return scenario?.opening || '';
+}
+
 export default function App() {
   const [view, setView] = useState(VIEW.HOME);
-  const [selectedScenario, setSelectedScenario] = useState(scenarios[0]);
+  const [scenarioList, setScenarioList] = useState(() => {
+    const userScenarios = loadUserScenarios();
+    const merged = [...DEFAULT_SCENARIOS, ...userScenarios];
+    const seen = new Set();
+    return merged.filter((scenario) => {
+      if (!scenario?.id) return false;
+      if (seen.has(scenario.id)) return false;
+      seen.add(scenario.id);
+      return true;
+    });
+  });
+  const [selectedScenario, setSelectedScenario] = useState(DEFAULT_SCENARIOS[0]);
   const [selectedRole, setSelectedRole] = useState(roles[0]);
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
@@ -179,11 +228,27 @@ export default function App() {
   const [lastNote, setLastNote] = useState(fallbackTip);
   const [nextTip, setNextTip] = useState('局势还没有展开。');
   const [storyDraft, setStoryDraft] = useState('');
+  const [isScenarioGenerating, setIsScenarioGenerating] = useState(false);
+  const [storyError, setStoryError] = useState('');
+  const [isAiThinking, setIsAiThinking] = useState(false);
   const reviewTimerRef = useRef(null);
 
   useEffect(() => {
     window.scrollTo({ top: 0, left: 0, behavior: 'auto' });
   }, [view]);
+
+  useEffect(() => {
+    if (!scenarioList.length) {
+      setScenarioList(DEFAULT_SCENARIOS);
+      setSelectedScenario(DEFAULT_SCENARIOS[0]);
+      return;
+    }
+
+    setSelectedScenario((current) => {
+      const found = scenarioList.find((scenario) => scenario.id === current?.id);
+      return found || scenarioList[0];
+    });
+  }, [scenarioList]);
 
   const abilityScores = useMemo(() => {
     const boost = Math.min(round, 3) * 5;
@@ -207,11 +272,12 @@ export default function App() {
     }
     setSelectedScenario(scenario);
     setSelectedRole(role);
+    const opening = getScenarioOpening(scenario, role);
     setMessages([
       {
         id: 'scene',
         type: 'scene',
-        text: scenario.opening,
+        text: opening,
       },
     ]);
     setRound(0);
@@ -222,21 +288,37 @@ export default function App() {
     setView(VIEW.PRACTICE);
   }
 
-  function sendMessage(text = input) {
+  async function sendMessage(text = input) {
     const clean = text.trim();
-    if (!clean) return;
+    if (!clean || isAiThinking || round >= 3) return;
 
-    const nextBeat = getSimulationBeat(clean);
+    const userMessage = {
+      id: `user-${Date.now()}`,
+      type: 'user',
+      speaker: selectedRole.name,
+      text: clean,
+    };
+
+    setMessages((items) => [...items, userMessage]);
+    setInput('');
+    setIsAiThinking(true);
+
+    let nextBeat;
+    try {
+      nextBeat = await generatePracticeBeat({
+        scenario: selectedScenario,
+        role: selectedRole,
+        history: [...messages, userMessage],
+        round,
+      });
+    } catch (error) {
+      nextBeat = getSimulationBeat(clean);
+    }
+
     const nextRound = round + 1;
 
     setMessages((items) => [
       ...items,
-      {
-        id: `user-${Date.now()}`,
-        type: 'user',
-        speaker: selectedRole.name,
-        text: clean,
-      },
       {
         id: `npc-${Date.now()}`,
         type: 'npc',
@@ -245,10 +327,10 @@ export default function App() {
       },
     ]);
     setRound(nextRound);
-    setCurrentFeedback(nextBeat.feedback);
-    setLastNote(nextBeat.note);
-    setNextTip(nextBeat.nextTip);
-    setInput('');
+    setCurrentFeedback(nextBeat.feedback || fallbackFeedback);
+    setLastNote(nextBeat.note || fallbackTip);
+    setNextTip(nextBeat.nextTip || '局势还没有展开。');
+    setIsAiThinking(false);
 
     if (nextRound >= 3) {
       reviewTimerRef.current = window.setTimeout(() => {
@@ -264,21 +346,24 @@ export default function App() {
       reviewTimerRef.current = null;
     }
     setView(VIEW.HOME);
-    setSelectedScenario(scenarios[0]);
+    setSelectedScenario(scenarioList[0] || DEFAULT_SCENARIOS[0]);
     setSelectedRole(roles[0]);
     setMessages([]);
     setRound(0);
     setCurrentFeedback(fallbackFeedback);
     setLastNote(fallbackTip);
     setNextTip('局势还没有展开。');
+    setInput('');
+    setIsAiThinking(false);
+    setStoryError('');
   }
 
   return (
     <main className="app-shell">
       {view === VIEW.HOME && (
         <HomeView
-          scenario={scenarios[0]}
-          onStart={() => startPractice(roles[0], scenarios[0])}
+          scenario={scenarioList[0] || DEFAULT_SCENARIOS[0]}
+          onStart={() => startPractice(roles[0], scenarioList[0] || DEFAULT_SCENARIOS[0])}
           onExplore={() => setView(VIEW.SCENARIOS)}
           onStory={() => setView(VIEW.STORY)}
         />
@@ -289,6 +374,7 @@ export default function App() {
           selectedScenario={selectedScenario}
           onBack={() => setView(VIEW.HOME)}
           onChoose={chooseScenario}
+          scenarios={scenarioList}
         />
       )}
 
@@ -319,6 +405,7 @@ export default function App() {
           onBack={() => setView(VIEW.ROLE)}
           onHome={resetToHome}
           onEnd={() => setView(VIEW.REVIEW)}
+          loading={isAiThinking}
         />
       )}
 
@@ -338,9 +425,54 @@ export default function App() {
           onChange={setStoryDraft}
           onBack={() => setView(VIEW.HOME)}
           onDemo={() => {
-            setSelectedScenario(scenarios[0]);
+            setSelectedScenario(scenarioList[0] || DEFAULT_SCENARIOS[0]);
             setView(VIEW.ROLE);
           }}
+          onGenerate={async () => {
+            if (!storyDraft.trim() || isScenarioGenerating) return;
+            setStoryError('');
+            setIsScenarioGenerating(true);
+            try {
+              const scenarioData = await generateScenarioFromStory(storyDraft);
+              const createdAt = Date.now();
+              const newScenario = {
+                id: `story_${createdAt}`,
+                title: scenarioData.title || '我的故事',
+                place: '你的故事',
+                goal: '观察选择后的走向',
+                duration: '4 分钟',
+                difficulty: scenarioData.difficulty || '中等',
+                tone: 'teal',
+                summary: scenarioData.description || '根据你的故事生成的情境。',
+                prompt: '你现在最自然的反应是什么？',
+                openings: {
+                  target: scenarioData.victimScene || scenarioData.victimNarrator || '故事正在发生...',
+                  friend: scenarioData.bystanderScene || scenarioData.bystanderNarrator || '你看到了这一幕...',
+                  follower: scenarioData.accompliceScene || scenarioData.accompliceNarrator || '你在旁边跟着起哄...',
+                  observer: scenarioData.observerScene || scenarioData.observerNarrator || '你静静地看着这一切...',
+                },
+                aiScenario: scenarioData,
+                isDefault: false,
+                createdBy: 'user',
+                createdAt,
+              };
+
+              setScenarioList((items) => {
+                const next = [newScenario, ...items.filter((item) => item.id !== newScenario.id)];
+                saveUserScenarios(next);
+                return next;
+              });
+              setSelectedScenario(newScenario);
+              setSelectedRole(roles[0]);
+              setView(VIEW.ROLE);
+            } catch (error) {
+              setStoryError(error?.message || '生成失败，请重试');
+            } finally {
+              setIsScenarioGenerating(false);
+            }
+          }}
+          loading={isScenarioGenerating}
+          error={storyError}
         />
       )}
     </main>
@@ -433,7 +565,7 @@ function HomeView({ scenario, onStart, onExplore, onStory }) {
   );
 }
 
-function ScenarioView({ selectedScenario, onBack, onChoose }) {
+function ScenarioView({ scenarios, selectedScenario, onBack, onChoose }) {
   return (
     <section className="page narrow-page">
       <TopBar title="选择今天要练习的情境" onBack={onBack} />
@@ -511,6 +643,7 @@ function PracticeView({
   onBack,
   onHome,
   onEnd,
+  loading,
 }) {
   return (
     <section className="practice-screen">
@@ -545,11 +678,20 @@ function PracticeView({
                 </div>
               </div>
             ))}
+            {loading && (
+              <div className="message-row npc" key="loading">
+                <span className="avatar">情</span>
+                <div className="bubble">
+                  <span className="speaker">情境回应</span>
+                  正在推演...
+                </div>
+              </div>
+            )}
           </div>
 
           <div className="reply-suggestions">
             {quickReplies.map((reply) => (
-              <button key={reply} onClick={() => onSend(reply)} disabled={round >= 3}>
+              <button key={reply} onClick={() => onSend(reply)} disabled={round >= 3 || loading}>
                 {reply}
               </button>
             ))}
@@ -563,9 +705,9 @@ function PracticeView({
                 if (event.key === 'Enter') onSend();
               }}
               placeholder={`以“${role.name}”的身份说一句...`}
-              disabled={round >= 3}
+              disabled={round >= 3 || loading}
             />
-            <button className="send-btn" onClick={() => onSend()} disabled={!input.trim() || round >= 3}>
+            <button className="send-btn" onClick={() => onSend()} disabled={!input.trim() || round >= 3 || loading}>
               <Send size={18} />
             </button>
           </div>
@@ -636,7 +778,7 @@ function ReviewView({ scenario, role, scores, onReplay, onHome }) {
   );
 }
 
-function StoryView({ value, onChange, onBack, onDemo }) {
+function StoryView({ value, onChange, onBack, onDemo, onGenerate, loading, error }) {
   return (
     <section className="page narrow-page">
       <TopBar title="讲述我的故事" onBack={onBack} />
@@ -650,6 +792,11 @@ function StoryView({ value, onChange, onBack, onDemo }) {
             onChange={(event) => onChange(event.target.value)}
             placeholder="可以简单写下：发生在哪里、谁说了什么、你当时有什么感受。"
           />
+          {error && <p>{error}</p>}
+          <button className="primary-btn" onClick={onGenerate} disabled={loading || !value.trim()}>
+            {loading ? '正在生成剧本...' : '生成剧本并开始'}
+            <ChevronRight size={18} />
+          </button>
           <button className="primary-btn" onClick={onDemo}>
             先体验预设演练
             <ChevronRight size={18} />
