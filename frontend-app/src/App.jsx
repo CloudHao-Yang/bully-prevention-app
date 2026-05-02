@@ -8,16 +8,21 @@ import {
   HeartHandshake,
   Home,
   MessageCircle,
+  Mic,
+  MicOff,
   PenLine,
   RefreshCcw,
   Send,
   Shield,
   Sparkles,
   Users,
+  Volume2,
+  VolumeX,
 } from 'lucide-react';
 import { HOME_IMAGES } from './homeAssets';
 import { generateScenarioFromStory } from './scenarioGenerator';
 import { generatePracticeBeat } from './practiceGenerator';
+import { createSpeechRecognizer, speakText, stopSpeaking } from './voice';
 import './App.css';
 
 const VIEW = {
@@ -231,11 +236,29 @@ export default function App() {
   const [isScenarioGenerating, setIsScenarioGenerating] = useState(false);
   const [storyError, setStoryError] = useState('');
   const [isAiThinking, setIsAiThinking] = useState(false);
+  const [isListening, setIsListening] = useState(false);
+  const [voiceTranscript, setVoiceTranscript] = useState('');
+  const [voiceError, setVoiceError] = useState('');
+  const [voiceEnabled, setVoiceEnabled] = useState(true);
   const reviewTimerRef = useRef(null);
+  const speechRecognizerRef = useRef(null);
+  const listeningWantedRef = useRef(false);
 
   useEffect(() => {
     window.scrollTo({ top: 0, left: 0, behavior: 'auto' });
   }, [view]);
+
+  useEffect(() => {
+    return () => {
+      stopSpeaking();
+      if (speechRecognizerRef.current) {
+        try {
+          speechRecognizerRef.current.abort();
+        } catch (error) {
+        }
+      }
+    };
+  }, []);
 
   useEffect(() => {
     if (!scenarioList.length) {
@@ -326,6 +349,9 @@ export default function App() {
         text: nextBeat.npc,
       },
     ]);
+    if (voiceEnabled) {
+      speakText(nextBeat.npc);
+    }
     setRound(nextRound);
     setCurrentFeedback(nextBeat.feedback || fallbackFeedback);
     setLastNote(nextBeat.note || fallbackTip);
@@ -355,7 +381,86 @@ export default function App() {
     setNextTip('局势还没有展开。');
     setInput('');
     setIsAiThinking(false);
+    setIsListening(false);
+    setVoiceTranscript('');
+    setVoiceError('');
     setStoryError('');
+  }
+
+  function ensureRecognizer() {
+    if (speechRecognizerRef.current) return speechRecognizerRef.current;
+    const recognizer = createSpeechRecognizer({ lang: 'zh-CN' });
+    if (!recognizer) return null;
+
+    recognizer.onresult = (event) => {
+      let interim = '';
+      let finalText = '';
+      for (let i = event.resultIndex; i < event.results.length; i += 1) {
+        const result = event.results[i];
+        const text = result[0]?.transcript || '';
+        if (result.isFinal) finalText += text;
+        else interim += text;
+      }
+      const combined = `${finalText}${interim}`.trim();
+      setVoiceTranscript(combined);
+    };
+
+    recognizer.onerror = (event) => {
+      const code = event?.error || 'unknown';
+      setVoiceError(code === 'not-allowed' ? '需要授权麦克风权限' : '语音识别失败');
+      setIsListening(false);
+      listeningWantedRef.current = false;
+    };
+
+    recognizer.onend = () => {
+      setIsListening(false);
+      const shouldSend = listeningWantedRef.current;
+      listeningWantedRef.current = false;
+      setVoiceTranscript((latest) => {
+        const finalText = latest.trim();
+        if (shouldSend && finalText) {
+          window.setTimeout(() => sendMessage(finalText), 0);
+        }
+        return '';
+      });
+    };
+
+    speechRecognizerRef.current = recognizer;
+    return recognizer;
+  }
+
+  function startVoice() {
+    if (isAiThinking || round >= 3) return;
+    const recognizer = ensureRecognizer();
+    if (!recognizer) {
+      setVoiceError('当前浏览器不支持语音识别');
+      return;
+    }
+    setVoiceError('');
+    setVoiceTranscript('');
+    listeningWantedRef.current = true;
+    try {
+      recognizer.start();
+      setIsListening(true);
+    } catch (error) {
+      setVoiceError('语音识别启动失败');
+      setIsListening(false);
+      listeningWantedRef.current = false;
+    }
+  }
+
+  function stopVoice() {
+    listeningWantedRef.current = true;
+    if (!speechRecognizerRef.current) {
+      setIsListening(false);
+      return;
+    }
+    try {
+      speechRecognizerRef.current.stop();
+    } catch (error) {
+      setIsListening(false);
+      listeningWantedRef.current = false;
+    }
   }
 
   return (
@@ -406,6 +511,22 @@ export default function App() {
           onHome={resetToHome}
           onEnd={() => setView(VIEW.REVIEW)}
           loading={isAiThinking}
+          voice={{
+            enabled: voiceEnabled,
+            onToggleEnabled: () => {
+              setVoiceEnabled((prev) => {
+                const next = !prev;
+                if (!next) stopSpeaking();
+                return next;
+              });
+            },
+            isListening,
+            transcript: voiceTranscript,
+            error: voiceError,
+            start: startVoice,
+            stop: stopVoice,
+            supported: Boolean(window.SpeechRecognition || window.webkitSpeechRecognition),
+          }}
         />
       )}
 
@@ -644,7 +765,12 @@ function PracticeView({
   onHome,
   onEnd,
   loading,
+  voice,
 }) {
+  const voiceSupported = voice?.supported;
+  const VoiceIcon = voiceSupported ? (voice?.isListening ? MicOff : Mic) : MicOff;
+  const SpeakerIcon = voice?.enabled ? Volume2 : VolumeX;
+
   return (
     <section className="practice-screen">
       <header className="practice-header">
@@ -657,6 +783,37 @@ function PracticeView({
         </div>
         <button className="icon-btn home-shortcut" onClick={onHome} aria-label="回到首页">
           <Home size={19} />
+        </button>
+        <button
+          className={`icon-btn voice-toggle ${voice?.enabled ? 'on' : 'off'}`}
+          onClick={voice?.onToggleEnabled}
+          aria-label={voice?.enabled ? '关闭语音播报' : '开启语音播报'}
+          disabled={!voice}
+          type="button"
+        >
+          <SpeakerIcon size={18} />
+        </button>
+        <button
+          className={`icon-btn mic-btn ${voice?.isListening ? 'listening' : ''}`}
+          aria-label={voiceSupported ? '按住说话' : '语音不可用'}
+          disabled={!voiceSupported || loading || round >= 3}
+          onPointerDown={(event) => {
+            event.preventDefault();
+            voice?.start?.();
+          }}
+          onPointerUp={(event) => {
+            event.preventDefault();
+            voice?.stop?.();
+          }}
+          onPointerLeave={(event) => {
+            if (voice?.isListening) {
+              event.preventDefault();
+              voice?.stop?.();
+            }
+          }}
+          type="button"
+        >
+          <VoiceIcon size={18} />
         </button>
         <button className="text-btn end-review-btn" onClick={onEnd}>查看回放</button>
       </header>
@@ -688,6 +845,12 @@ function PracticeView({
               </div>
             )}
           </div>
+
+          {(voice?.error || voice?.transcript) && (
+            <div className={`voice-status ${voice?.error ? 'error' : ''}`}>
+              {voice?.error ? voice.error : `识别中：${voice.transcript}`}
+            </div>
+          )}
 
           <div className="reply-suggestions">
             {quickReplies.map((reply) => (
