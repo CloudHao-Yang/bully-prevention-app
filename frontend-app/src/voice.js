@@ -25,8 +25,8 @@ export function getSpeechSynthesis() {
 let audioPlayer = null;
 let audioUrl = null;
 
-async function speakByMiniMaxTts(text) {
-  const response = await fetch('/api/minimax/tts', {
+async function speakByDoubaoTts(text) {
+  const response = await fetch('/api/doubao/tts', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ text }),
@@ -73,13 +73,20 @@ export function speakText(text, { lang = 'zh-CN', rate = 1, pitch = 1, volume = 
   }
 }
 
+export async function speakCloud(text) {
+  const clean = (text || '').trim();
+  if (!clean) return;
+  stopSpeaking();
+  await speakByDoubaoTts(clean);
+}
+
 export async function speak(text, { fallbackToBrowserTts = true } = {}) {
   const clean = (text || '').trim();
   if (!clean) return;
 
   stopSpeaking();
   try {
-    await speakByMiniMaxTts(clean);
+    await speakByDoubaoTts(clean);
   } catch (error) {
     if (fallbackToBrowserTts) {
       speakText(clean);

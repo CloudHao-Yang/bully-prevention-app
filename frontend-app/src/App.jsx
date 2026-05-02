@@ -11,6 +11,7 @@ import {
   Mic,
   MicOff,
   PenLine,
+  Play,
   RefreshCcw,
   Send,
   Shield,
@@ -22,7 +23,7 @@ import {
 import { HOME_IMAGES } from './homeAssets';
 import { generateScenarioFromStory } from './scenarioGenerator';
 import { generatePracticeBeat } from './practiceGenerator';
-import { createSpeechRecognizer, speak, stopSpeaking } from './voice';
+import { createSpeechRecognizer, speak, speakCloud, stopSpeaking } from './voice';
 import './App.css';
 
 const VIEW = {
@@ -526,6 +527,7 @@ export default function App() {
             start: startVoice,
             stop: stopVoice,
             supported: Boolean(window.SpeechRecognition || window.webkitSpeechRecognition),
+            speakCloud,
           }}
         />
       )}
@@ -770,6 +772,7 @@ function PracticeView({
   const voiceSupported = voice?.supported;
   const VoiceIcon = voiceSupported ? (voice?.isListening ? MicOff : Mic) : MicOff;
   const SpeakerIcon = voice?.enabled ? Volume2 : VolumeX;
+  const [ttsTestStatus, setTtsTestStatus] = useState('');
 
   return (
     <section className="practice-screen">
@@ -792,6 +795,29 @@ function PracticeView({
           type="button"
         >
           <SpeakerIcon size={18} />
+        </button>
+        <button
+          className="icon-btn tts-test-btn"
+          aria-label="测试语音播报"
+          disabled={!voice?.speakCloud}
+          onClick={async () => {
+            const candidate =
+              input.trim() ||
+              [...messages].reverse().find((item) => item?.type === 'npc' && item?.text)?.text ||
+              scenario.opening ||
+              scenario.prompt;
+            setTtsTestStatus('TTS 测试中...');
+            try {
+              await voice?.speakCloud?.(candidate);
+              setTtsTestStatus('TTS 测试成功');
+            } catch (error) {
+              const message = typeof error?.message === 'string' ? error.message : 'TTS 测试失败';
+              setTtsTestStatus(`TTS 测试失败：${message}`);
+            }
+          }}
+          type="button"
+        >
+          <Play size={18} />
         </button>
         <button className="text-btn end-review-btn" onClick={onEnd}>查看回放</button>
       </header>
@@ -829,6 +855,7 @@ function PracticeView({
               {voice?.error ? voice.error : `识别中：${voice.transcript}`}
             </div>
           )}
+          {ttsTestStatus && <div className="voice-status">{ttsTestStatus}</div>}
 
           <div className="reply-suggestions">
             {quickReplies.map((reply) => (
