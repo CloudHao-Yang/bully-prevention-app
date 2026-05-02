@@ -9,7 +9,10 @@ export default defineConfig(({ mode }) => {
   process.env.DOUBAO_TTS_API_KEY = process.env.DOUBAO_TTS_API_KEY || env.DOUBAO_TTS_API_KEY
   process.env.DOUBAO_TTS_RESOURCE_ID = process.env.DOUBAO_TTS_RESOURCE_ID || env.DOUBAO_TTS_RESOURCE_ID
   process.env.DOUBAO_TTS_SPEAKER = process.env.DOUBAO_TTS_SPEAKER || env.DOUBAO_TTS_SPEAKER
-  process.env.MINIMAX_API_KEY = process.env.MINIMAX_API_KEY || env.MINIMAX_API_KEY
+  process.env.MINIMAX_API_KEY =
+    process.env.MINIMAX_API_KEY ||
+    env.MINIMAX_API_KEY ||
+    env.ANTHROPIC_API_KEY
 
   return {
     plugins: [
