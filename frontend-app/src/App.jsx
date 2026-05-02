@@ -23,7 +23,7 @@ import {
 import { HOME_IMAGES } from './homeAssets';
 import { generateScenarioFromStory } from './scenarioGenerator';
 import { generatePracticeBeat } from './practiceGenerator';
-import { createSpeechRecognizer, speak, speakCloud, stopSpeaking } from './voice';
+import { createSpeechRecognizer, speak, speakCloud, speakText, stopSpeaking } from './voice';
 import './App.css';
 
 const VIEW = {
@@ -324,6 +324,7 @@ export default function App() {
   async function sendMessage(text = input) {
     const clean = text.trim();
     if (!clean || isAiThinking) return;
+    setVoiceError('');
 
     const userMessage = {
       id: `user-${Date.now()}`,
@@ -345,6 +346,9 @@ export default function App() {
         round,
       });
     } catch (error) {
+      const message = typeof error?.message === 'string' ? error.message : '';
+      const short = message.length > 120 ? `${message.slice(0, 120)}...` : message;
+      setVoiceError(short ? `模型调用失败，已使用内置推演：${short}` : '模型调用失败，已使用内置推演');
       nextBeat = getSimulationBeat(clean);
     }
 
@@ -373,7 +377,12 @@ export default function App() {
         : []),
     ]);
     if (voiceEnabled) {
-      speak(nextBeat.npc, { speaker: DOUBAO_SPEAKERS.narrator });
+      try {
+        await speak(nextBeat.npc, { speaker: DOUBAO_SPEAKERS.narrator, fallbackToBrowserTts: false });
+      } catch (error) {
+        setVoiceError('豆包语音失败，已降级为浏览器朗读');
+        speakText(nextBeat.npc);
+      }
     }
     setRound(nextRound);
     setCurrentFeedback(nextBeat.feedback || fallbackFeedback);
