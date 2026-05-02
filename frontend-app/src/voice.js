@@ -25,8 +25,8 @@ export function getSpeechSynthesis() {
 let audioPlayer = null;
 let audioUrl = null;
 
-async function speakByDoubaoTts(text) {
-  const response = await fetch('/api/doubao/tts', {
+async function speakByMiniMaxTts(text) {
+  const response = await fetch('/api/minimax/tts', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ text }),
@@ -79,7 +79,7 @@ export async function speak(text, { fallbackToBrowserTts = true } = {}) {
 
   stopSpeaking();
   try {
-    await speakByDoubaoTts(clean);
+    await speakByMiniMaxTts(clean);
   } catch (error) {
     if (fallbackToBrowserTts) {
       speakText(clean);

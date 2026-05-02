@@ -2,6 +2,7 @@ import { defineConfig, loadEnv } from 'vite'
 import react from '@vitejs/plugin-react'
 import doubaoTtsHandler from './api/doubao/tts.js'
 import minimaxHandler from './api/minimax/v1/messages.js'
+import minimaxTtsHandler from './api/minimax/tts.js'
 import fs from 'node:fs'
 import path from 'node:path'
 
@@ -12,6 +13,10 @@ export default defineConfig(({ mode }) => {
   process.env.DOUBAO_TTS_API_KEY = process.env.DOUBAO_TTS_API_KEY || env.DOUBAO_TTS_API_KEY
   process.env.DOUBAO_TTS_RESOURCE_ID = process.env.DOUBAO_TTS_RESOURCE_ID || env.DOUBAO_TTS_RESOURCE_ID
   process.env.DOUBAO_TTS_SPEAKER = process.env.DOUBAO_TTS_SPEAKER || env.DOUBAO_TTS_SPEAKER
+  process.env.MINIMAX_SPEECH_API_KEY =
+    process.env.MINIMAX_SPEECH_API_KEY ||
+    normalizeApiKey(rawEnv.MINIMAX_SPEECH_API_KEY) ||
+    normalizeApiKey(env.MINIMAX_SPEECH_API_KEY)
   process.env.MINIMAX_API_KEY =
     process.env.MINIMAX_API_KEY ||
     normalizeApiKey(rawEnv.MINIMAX_API_KEY) ||
@@ -40,6 +45,13 @@ export default defineConfig(({ mode }) => {
           server.middlewares.use('/api/minimax/v1/messages', async (req, res, next) => {
             try {
               await minimaxHandler(req, res)
+            } catch (error) {
+              next(error)
+            }
+          })
+          server.middlewares.use('/api/minimax/tts', async (req, res, next) => {
+            try {
+              await minimaxTtsHandler(req, res)
             } catch (error) {
               next(error)
             }
