@@ -12,11 +12,22 @@ export default async function handler(req, res) {
     return
   }
 
-  const apiKey = normalizeApiKey(process.env.MINIMAX_SPEECH_API_KEY || process.env.MINIMAX_API_KEY)
+  const apiKey = normalizeApiKey(
+    process.env.MINIMAX_SPEECH_API_KEY || process.env.MINIMAX_API_KEY || process.env.ANTHROPIC_API_KEY
+  )
   if (!apiKey) {
     res.statusCode = 500
     res.setHeader('content-type', 'application/json')
-    res.end(JSON.stringify({ error: 'Missing MINIMAX_SPEECH_API_KEY' }))
+    res.end(
+      JSON.stringify({
+        error: 'Missing API Key for TTS',
+        present: {
+          MINIMAX_SPEECH_API_KEY: Boolean(process.env.MINIMAX_SPEECH_API_KEY),
+          MINIMAX_API_KEY: Boolean(process.env.MINIMAX_API_KEY),
+          ANTHROPIC_API_KEY: Boolean(process.env.ANTHROPIC_API_KEY),
+        },
+      })
+    )
     return
   }
 
