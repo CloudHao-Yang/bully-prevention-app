@@ -793,28 +793,6 @@ function PracticeView({
         >
           <SpeakerIcon size={18} />
         </button>
-        <button
-          className={`icon-btn mic-btn ${voice?.isListening ? 'listening' : ''}`}
-          aria-label={voiceSupported ? '按住说话' : '语音不可用'}
-          disabled={!voiceSupported || loading || round >= 3}
-          onPointerDown={(event) => {
-            event.preventDefault();
-            voice?.start?.();
-          }}
-          onPointerUp={(event) => {
-            event.preventDefault();
-            voice?.stop?.();
-          }}
-          onPointerLeave={(event) => {
-            if (voice?.isListening) {
-              event.preventDefault();
-              voice?.stop?.();
-            }
-          }}
-          type="button"
-        >
-          <VoiceIcon size={18} />
-        </button>
         <button className="text-btn end-review-btn" onClick={onEnd}>查看回放</button>
       </header>
 
@@ -861,6 +839,28 @@ function PracticeView({
           </div>
 
           <div className="composer">
+            <button
+              className={`mic-btn mic-composer-btn ${voice?.isListening ? 'listening' : ''}`}
+              aria-label={voiceSupported ? '按住说话' : '语音不可用'}
+              disabled={!voiceSupported || loading || round >= 3}
+              onPointerDown={(event) => {
+                event.preventDefault();
+                voice?.start?.();
+              }}
+              onPointerUp={(event) => {
+                event.preventDefault();
+                voice?.stop?.();
+              }}
+              onPointerLeave={(event) => {
+                if (voice?.isListening) {
+                  event.preventDefault();
+                  voice?.stop?.();
+                }
+              }}
+              type="button"
+            >
+              <VoiceIcon size={18} />
+            </button>
             <input
               value={input}
               onChange={(event) => onInput(event.target.value)}

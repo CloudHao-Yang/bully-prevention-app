@@ -828,10 +828,25 @@ button {
 
 .composer {
   display: grid;
-  grid-template-columns: 1fr 48px;
+  grid-template-columns: 48px 1fr 48px;
   gap: 10px;
   padding: 16px 20px 20px;
   border-top: 1px solid rgba(36, 49, 47, 0.08);
+}
+
+.mic-composer-btn {
+  display: grid;
+  width: 48px;
+  height: 48px;
+  place-items: center;
+  border-radius: 16px;
+  border: 1px solid rgba(36, 49, 47, 0.08);
+  background: rgba(255, 255, 255, 0.9);
+  -webkit-tap-highlight-color: transparent;
+}
+
+.mic-composer-btn.listening {
+  border-color: rgba(216, 111, 97, 0.22);
 }
 
 .composer input,
