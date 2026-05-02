@@ -93,7 +93,7 @@ ${story}
   } catch (error) {
     const message = typeof error?.message === 'string' ? error.message : '';
     if (/HTTP\s+401/.test(message) || /authentication_error/i.test(message) || /login fail/i.test(message)) {
-      throw new Error('生成场景失败：鉴权失败，请检查 MINIMAX_API_KEY 是否有效');
+      throw new Error('生成场景失败：鉴权失败，请检查 Token Plan Key 是否正确（MINIMAX_API_KEY / ANTHROPIC_API_KEY）');
     }
     if (/HTTP\s+500/.test(message) || /Missing MINIMAX_API_KEY/i.test(message)) {
       throw new Error('生成场景失败：未配置 MINIMAX_API_KEY，请检查 .env.local 并重启开发服务');

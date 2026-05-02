@@ -12,7 +12,7 @@ export default async function handler(req, res) {
     return;
   }
 
-  const apiKey = process.env.MINIMAX_API_KEY;
+  const apiKey = normalizeApiKey(process.env.MINIMAX_API_KEY);
   if (!apiKey) {
     res.statusCode = 500;
     res.setHeader('content-type', 'application/json');
@@ -38,7 +38,6 @@ export default async function handler(req, res) {
       method: 'POST',
       headers: {
         authorization: `Bearer ${apiKey}`,
-        'x-api-key': apiKey,
         'anthropic-version': req.headers['anthropic-version'] || '2023-06-01',
         'content-type': 'application/json',
       },
@@ -54,6 +53,22 @@ export default async function handler(req, res) {
     res.setHeader('content-type', 'application/json');
     res.end(JSON.stringify({ error: 'Upstream request failed' }));
   }
+}
+
+function normalizeApiKey(value) {
+  if (!value) return '';
+  let key = String(value).trim();
+  if (!key) return '';
+  if ((key.startsWith('"') && key.endsWith('"')) || (key.startsWith("'") && key.endsWith("'"))) {
+    key = key.slice(1, -1).trim();
+  }
+  if (key.startsWith('${') && key.endsWith('}')) {
+    key = key.slice(2, -1).trim();
+  }
+  if (/^Bearer[;\s]+/i.test(key)) {
+    key = key.replace(/^Bearer[;\s]+/i, '').trim();
+  }
+  return key;
 }
 
 function readRawBody(req) {
