@@ -22,6 +22,38 @@ export function getSpeechSynthesis() {
   return window.speechSynthesis || null;
 }
 
+let audioPlayer = null;
+let audioUrl = null;
+
+async function speakByDoubaoTts(text) {
+  const response = await fetch('/api/doubao/tts', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ text }),
+  });
+
+  if (!response.ok) {
+    throw new Error(`HTTP ${response.status}`);
+  }
+
+  const blob = await response.blob();
+  if (!blob.size) throw new Error('Empty audio');
+
+  if (!audioPlayer) {
+    audioPlayer = new Audio();
+  }
+
+  if (audioUrl) {
+    URL.revokeObjectURL(audioUrl);
+    audioUrl = null;
+  }
+
+  audioUrl = URL.createObjectURL(blob);
+  audioPlayer.src = audioUrl;
+  audioPlayer.currentTime = 0;
+  await audioPlayer.play();
+}
+
 export function speakText(text, { lang = 'zh-CN', rate = 1, pitch = 1, volume = 1 } = {}) {
   const synth = getSpeechSynthesis();
   if (!synth) return false;
@@ -41,9 +73,37 @@ export function speakText(text, { lang = 'zh-CN', rate = 1, pitch = 1, volume = 
   }
 }
 
-export function stopSpeaking() {
-  const synth = getSpeechSynthesis();
-  if (!synth) return;
-  synth.cancel();
+export async function speak(text, { fallbackToBrowserTts = true } = {}) {
+  const clean = (text || '').trim();
+  if (!clean) return;
+
+  stopSpeaking();
+  try {
+    await speakByDoubaoTts(clean);
+  } catch (error) {
+    if (fallbackToBrowserTts) {
+      speakText(clean);
+      return;
+    }
+    throw error;
+  }
 }
 
+export function stopSpeaking() {
+  const synth = getSpeechSynthesis();
+  if (synth) synth.cancel();
+  if (audioPlayer) {
+    try {
+      audioPlayer.pause();
+      audioPlayer.currentTime = 0;
+    } catch (error) {
+    }
+  }
+  if (audioUrl) {
+    try {
+      URL.revokeObjectURL(audioUrl);
+    } catch (error) {
+    }
+    audioUrl = null;
+  }
+}

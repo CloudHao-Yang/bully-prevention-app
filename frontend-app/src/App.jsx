@@ -22,7 +22,7 @@ import {
 import { HOME_IMAGES } from './homeAssets';
 import { generateScenarioFromStory } from './scenarioGenerator';
 import { generatePracticeBeat } from './practiceGenerator';
-import { createSpeechRecognizer, speakText, stopSpeaking } from './voice';
+import { createSpeechRecognizer, speak, stopSpeaking } from './voice';
 import './App.css';
 
 const VIEW = {
@@ -350,7 +350,7 @@ export default function App() {
       },
     ]);
     if (voiceEnabled) {
-      speakText(nextBeat.npc);
+      speak(nextBeat.npc);
     }
     setRound(nextRound);
     setCurrentFeedback(nextBeat.feedback || fallbackFeedback);
