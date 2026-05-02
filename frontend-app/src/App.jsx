@@ -323,7 +323,7 @@ export default function App() {
 
   async function sendMessage(text = input) {
     const clean = text.trim();
-    if (!clean || isAiThinking || round >= 3) return;
+    if (!clean || isAiThinking) return;
 
     const userMessage = {
       id: `user-${Date.now()}`,
@@ -349,6 +349,9 @@ export default function App() {
     }
 
     const nextRound = round + 1;
+    const stageRounds =
+      selectedScenario?.aiScenario?.maxRounds || selectedScenario?.maxRounds || 6;
+    const stageReached = stageRounds > 0 && nextRound % stageRounds === 0;
 
     setMessages((items) => [
       ...items,
@@ -358,6 +361,16 @@ export default function App() {
         speaker: '情境回应',
         text: nextBeat.npc,
       },
+      ...(stageReached
+        ? [
+            {
+              id: `checkpoint-${Date.now()}`,
+              type: 'npc',
+              speaker: '阶段提示',
+              text: `已推演到第 ${nextRound} 轮。你可以点右上角“查看回放”复盘，也可以继续推进。`,
+            },
+          ]
+        : []),
     ]);
     if (voiceEnabled) {
       speak(nextBeat.npc, { speaker: DOUBAO_SPEAKERS.narrator });
@@ -367,13 +380,6 @@ export default function App() {
     setLastNote(nextBeat.note || fallbackTip);
     setNextTip(nextBeat.nextTip || '局势还没有展开。');
     setIsAiThinking(false);
-
-    if (nextRound >= 3) {
-      reviewTimerRef.current = window.setTimeout(() => {
-        reviewTimerRef.current = null;
-        setView(VIEW.REVIEW);
-      }, 650);
-    }
   }
 
   function resetToHome() {
@@ -440,7 +446,7 @@ export default function App() {
   }
 
   function startVoice() {
-    if (isAiThinking || round >= 3) return;
+    if (isAiThinking) return;
     const recognizer = ensureRecognizer();
     if (!recognizer) {
       setVoiceError('当前浏览器不支持语音识别');
@@ -793,7 +799,7 @@ function PracticeView({
         </button>
         <div>
           <strong>{scenario.title}</strong>
-          <span>{role.title} · 第 {Math.min(round + 1, 3)} 轮</span>
+          <span>{role.title} · 第 {round + 1} 轮</span>
         </div>
         <button className="icon-btn home-shortcut" onClick={onHome} aria-label="回到首页">
           <Home size={19} />
@@ -870,7 +876,7 @@ function PracticeView({
 
           <div className="reply-suggestions">
             {quickReplies.map((reply) => (
-              <button key={reply} onClick={() => onSend(reply)} disabled={round >= 3 || loading}>
+              <button key={reply} onClick={() => onSend(reply)} disabled={loading}>
                 {reply}
               </button>
             ))}
@@ -880,7 +886,7 @@ function PracticeView({
             <button
               className={`mic-btn mic-composer-btn ${voice?.isListening ? 'listening' : ''}`}
               aria-label={voiceSupported ? '按住说话' : '语音不可用'}
-              disabled={!voiceSupported || loading || round >= 3}
+              disabled={!voiceSupported || loading}
               onPointerDown={(event) => {
                 event.preventDefault();
                 voice?.start?.();
@@ -906,9 +912,9 @@ function PracticeView({
                 if (event.key === 'Enter') onSend();
               }}
               placeholder={`以“${role.name}”的身份说一句...`}
-              disabled={round >= 3 || loading}
+              disabled={loading}
             />
-            <button className="send-btn" onClick={() => onSend()} disabled={!input.trim() || round >= 3 || loading}>
+            <button className="send-btn" onClick={() => onSend()} disabled={!input.trim() || loading}>
               <Send size={18} />
             </button>
           </div>

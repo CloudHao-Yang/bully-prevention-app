@@ -50,8 +50,12 @@ function extractJson(text) {
 }
 
 function formatHistory(history) {
-  return history
-    .filter((item) => item && typeof item.text === 'string')
+  const items = (history || []).filter((item) => item && typeof item.text === 'string')
+  const scene = items.find((item) => item.type === 'scene')
+  const tail = items.filter((item) => item.type !== 'scene').slice(-18)
+  const merged = scene ? [scene, ...tail] : tail
+
+  return merged
     .map((item) => {
       if (item.type === 'scene') return `【场景】${item.text}`;
       if (item.type === 'user') return `【你】${item.text}`;
@@ -119,4 +123,3 @@ ${transcript}
     feedback: normalizeFeedback(parsed?.feedback),
   };
 }
-
