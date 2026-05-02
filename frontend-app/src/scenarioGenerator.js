@@ -1,4 +1,4 @@
-import { chatWithMiniMax } from './api';
+import { sendMiniMaxMessage } from './api';
 
 // AI 生成场景的系统提示词（全中文）
 const SCENARIO_GENERATOR_PROMPT = `你是一位专业的儿童心理教育专家，擅长将孩子描述的校园欺凌经历转化为有趣的教育剧本。
@@ -63,17 +63,42 @@ export async function generateScenarioFromStory(story) {
     throw new Error('请先描述你的故事');
   }
 
+  const trimmedStory = story.trim();
+  const storyForPrompt = trimmedStory.length > 1200 ? trimmedStory.slice(0, 1200) : trimmedStory;
+
   const userMessage = `请根据以下故事生成一个角色扮演场景（请用中文输出）：
 
-${story}
+${storyForPrompt}
 
 请生成一个适合教育的场景，包含至少2个角色（被欺负的人和欺凌者）。`;
 
   try {
-    const result = await chatWithMiniMax(
-      [{ role: 'user', content: userMessage }],
-      SCENARIO_GENERATOR_PROMPT
-    );
+    let result;
+    try {
+      result = await sendMiniMaxMessage({
+        messages: [{ role: 'user', content: userMessage }],
+        system: SCENARIO_GENERATOR_PROMPT,
+        max_tokens: 700,
+      });
+    } catch (error) {
+      const message = typeof error?.message === 'string' ? error.message : '';
+      if (/HTTP\s+504/.test(message) || /timeout/i.test(message)) {
+        const shorter = trimmedStory.length > 600 ? trimmedStory.slice(0, 600) : trimmedStory;
+        const retryMessage = `请根据以下故事生成一个角色扮演场景（请用中文输出）：
+
+${shorter}
+
+请生成一个适合教育的场景，包含至少2个角色（被欺负的人和欺凌者）。`;
+
+        result = await sendMiniMaxMessage({
+          messages: [{ role: 'user', content: retryMessage }],
+          system: SCENARIO_GENERATOR_PROMPT,
+          max_tokens: 520,
+        });
+      } else {
+        throw error;
+      }
+    }
 
     // 尝试解析 JSON
     let scenarioData;
@@ -94,6 +119,9 @@ ${story}
     const message = typeof error?.message === 'string' ? error.message : '';
     if (/HTTP\s+401/.test(message) || /authentication_error/i.test(message) || /login fail/i.test(message)) {
       throw new Error('生成场景失败：鉴权失败，请检查 Token Plan Key 是否正确（MINIMAX_API_KEY / ANTHROPIC_API_KEY）');
+    }
+    if (/HTTP\s+504/.test(message) || /timeout/i.test(message)) {
+      throw new Error('生成场景失败：上游请求超时，请缩短故事描述后重试');
     }
     if (/HTTP\s+500/.test(message) || /Missing MINIMAX_API_KEY/i.test(message)) {
       throw new Error('生成场景失败：未配置 MINIMAX_API_KEY，请检查 .env.local 并重启开发服务');
