@@ -1,6 +1,7 @@
 import { defineConfig, loadEnv } from 'vite'
 import react from '@vitejs/plugin-react'
 import doubaoTtsHandler from './api/doubao/tts.js'
+import minimaxHandler from './api/minimax/v1/messages.js'
 
 // https://vitejs.dev/config/
 export default defineConfig(({ mode }) => {
@@ -25,15 +26,19 @@ export default defineConfig(({ mode }) => {
           })
         },
       },
+      {
+        name: 'minimax-dev-middleware',
+        configureServer(server) {
+          server.middlewares.use('/api/minimax/v1/messages', async (req, res, next) => {
+            try {
+              await minimaxHandler(req, res)
+            } catch (error) {
+              next(error)
+            }
+          })
+        },
+      },
     ],
-    server: {
-      proxy: {
-        '/api/minimax': {
-          target: 'https://api.minimaxi.com/anthropic',
-          changeOrigin: true,
-          rewrite: (path) => path.replace(/^\/api\/minimax/, '')
-        }
-      }
-    }
+    server: {}
   }
 })
