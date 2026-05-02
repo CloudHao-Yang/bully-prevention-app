@@ -33,7 +33,9 @@ async function speakByDoubaoTts(text, { speaker } = {}) {
   });
 
   if (!response.ok) {
-    throw new Error(`HTTP ${response.status}`);
+    const errorText = await response.text().catch(() => '');
+    const trimmed = errorText.trim();
+    throw new Error(`HTTP ${response.status}${trimmed ? `: ${trimmed.slice(0, 280)}` : ''}`);
   }
 
   const blob = await response.blob();

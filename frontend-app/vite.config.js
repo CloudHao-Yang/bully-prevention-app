@@ -10,9 +10,12 @@ import path from 'node:path'
 export default defineConfig(({ mode }) => {
   const rawEnv = readDotEnvLocal(process.cwd())
   const env = loadEnv(mode, process.cwd(), '')
-  process.env.DOUBAO_TTS_API_KEY = process.env.DOUBAO_TTS_API_KEY || env.DOUBAO_TTS_API_KEY
-  process.env.DOUBAO_TTS_RESOURCE_ID = process.env.DOUBAO_TTS_RESOURCE_ID || env.DOUBAO_TTS_RESOURCE_ID
-  process.env.DOUBAO_TTS_SPEAKER = process.env.DOUBAO_TTS_SPEAKER || env.DOUBAO_TTS_SPEAKER
+  process.env.DOUBAO_TTS_API_KEY =
+    process.env.DOUBAO_TTS_API_KEY || normalizeApiKey(rawEnv.DOUBAO_TTS_API_KEY) || normalizeApiKey(env.DOUBAO_TTS_API_KEY)
+  process.env.DOUBAO_TTS_RESOURCE_ID =
+    process.env.DOUBAO_TTS_RESOURCE_ID || rawEnv.DOUBAO_TTS_RESOURCE_ID || env.DOUBAO_TTS_RESOURCE_ID
+  process.env.DOUBAO_TTS_SPEAKER =
+    process.env.DOUBAO_TTS_SPEAKER || rawEnv.DOUBAO_TTS_SPEAKER || env.DOUBAO_TTS_SPEAKER
   process.env.MINIMAX_SPEECH_API_KEY =
     process.env.MINIMAX_SPEECH_API_KEY ||
     normalizeApiKey(rawEnv.MINIMAX_SPEECH_API_KEY) ||

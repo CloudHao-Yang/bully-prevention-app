@@ -380,7 +380,8 @@ export default function App() {
       try {
         await speak(nextBeat.npc, { speaker: DOUBAO_SPEAKERS.narrator, fallbackToBrowserTts: false });
       } catch (error) {
-        setVoiceError('豆包语音失败，已降级为浏览器朗读');
+        const message = typeof error?.message === 'string' ? error.message : '';
+        setVoiceError(message ? `豆包语音失败，已降级为浏览器朗读：${message}` : '豆包语音失败，已降级为浏览器朗读');
         speakText(nextBeat.npc);
       }
     }
