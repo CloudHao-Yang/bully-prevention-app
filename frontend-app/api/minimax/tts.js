@@ -41,7 +41,7 @@ export default async function handler(req, res) {
     return
   }
 
-  const model = typeof payload.model === 'string' && payload.model.trim() ? payload.model.trim() : 'speech-2.8-turbo'
+  const requestedModel = typeof payload.model === 'string' && payload.model.trim() ? payload.model.trim() : 'speech-2.8-hd'
   const voiceId =
     typeof payload.voice_id === 'string' && payload.voice_id.trim()
       ? payload.voice_id.trim()
@@ -52,65 +52,40 @@ export default async function handler(req, res) {
   const emotion = typeof payload.emotion === 'string' && payload.emotion.trim() ? payload.emotion.trim() : undefined
 
   try {
-    const upstreamResponse = await fetch('https://api.minimaxi.com/v1/t2a_v2', {
-      method: 'POST',
-      headers: {
-        authorization: `Bearer ${apiKey}`,
-        'content-type': 'application/json',
-      },
-      body: JSON.stringify({
-        model,
-        text: text.slice(0, 3000),
-        stream: false,
-        voice_setting: {
-          voice_id: voiceId,
-          speed,
-          vol,
-          pitch,
-          ...(emotion ? { emotion } : {}),
-        },
-        audio_setting: {
-          sample_rate: 32000,
-          bitrate: 128000,
-          format: 'mp3',
-          channel: 1,
-        },
-        output_format: 'hex',
-      }),
+    const modelsToTry = buildModelFallbackList(requestedModel)
+    const endpoints = ['https://api.minimaxi.com/v1/t2a_v2', 'https://api-bj.minimaxi.com/v1/t2a_v2']
+    const headerModes = ['authorization', 'both']
+
+    const { audioHex, errorDetail } = await tryGenerateAudioHex({
+      apiKey,
+      endpoints,
+      headerModes,
+      modelsToTry,
+      text,
+      voiceId,
+      speed,
+      vol,
+      pitch,
+      emotion,
     })
 
-    const data = await upstreamResponse.json().catch(() => null)
-    if (!upstreamResponse.ok) {
-      res.statusCode = upstreamResponse.status
-      res.setHeader('content-type', 'application/json')
-      res.end(JSON.stringify({ error: 'Upstream error', detail: data }))
-      return
-    }
-
-    const statusCode = data?.base_resp?.status_code
-    if (typeof statusCode === 'number' && statusCode !== 0) {
+    if (!audioHex) {
+      const statusCode = errorDetail?.base_resp?.status_code
       if (statusCode === 2061) {
         res.statusCode = 403
         res.setHeader('content-type', 'application/json')
         res.end(
           JSON.stringify({
-            error: 'Token Plan key does not support TTS on /v1/t2a_v2',
-            detail: data?.base_resp || data,
+            error: 'TTS not available for current Token Plan key. Please confirm your plan includes Speech 2.8 quota and it is not exhausted.',
+            detail: errorDetail?.base_resp || errorDetail,
           })
         )
         return
       }
-      res.statusCode = 502
-      res.setHeader('content-type', 'application/json')
-      res.end(JSON.stringify({ error: 'TTS failed', detail: data?.base_resp || data }))
-      return
-    }
 
-    const audioHex = typeof data?.data?.audio === 'string' ? data.data.audio : ''
-    if (!audioHex) {
       res.statusCode = 502
       res.setHeader('content-type', 'application/json')
-      res.end(JSON.stringify({ error: 'Empty audio', detail: data }))
+      res.end(JSON.stringify({ error: 'TTS failed', detail: errorDetail }))
       return
     }
 
@@ -124,6 +99,105 @@ export default async function handler(req, res) {
     res.setHeader('content-type', 'application/json')
     res.end(JSON.stringify({ error: 'Upstream request failed' }))
   }
+}
+
+async function tryGenerateAudioHex({
+  apiKey,
+  endpoints,
+  headerModes,
+  modelsToTry,
+  text,
+  voiceId,
+  speed,
+  vol,
+  pitch,
+  emotion,
+}) {
+  let lastError = null
+
+  for (const endpoint of endpoints) {
+    for (const headerMode of headerModes) {
+      const headers = {
+        'content-type': 'application/json',
+      }
+      if (headerMode === 'authorization') {
+        headers.authorization = `Bearer ${apiKey}`
+      } else {
+        headers.authorization = `Bearer ${apiKey}`
+        headers['x-api-key'] = apiKey
+      }
+
+      for (const model of modelsToTry) {
+        const upstreamResponse = await fetch(endpoint, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({
+            model,
+            text: text.slice(0, 3000),
+            stream: false,
+            voice_setting: {
+              voice_id: voiceId,
+              speed,
+              vol,
+              pitch,
+              ...(emotion ? { emotion } : {}),
+            },
+            audio_setting: {
+              sample_rate: 32000,
+              bitrate: 128000,
+              format: 'mp3',
+              channel: 1,
+            },
+            output_format: 'hex',
+          }),
+        })
+
+        const data = await upstreamResponse.json().catch(() => null)
+        if (!upstreamResponse.ok) {
+          lastError = data || { http_status: upstreamResponse.status }
+          continue
+        }
+
+        const statusCode = data?.base_resp?.status_code
+        if (typeof statusCode === 'number' && statusCode !== 0) {
+          lastError = data
+          if (statusCode === 2061) return { audioHex: '', errorDetail: data }
+          continue
+        }
+
+        const audioHex = typeof data?.data?.audio === 'string' ? data.data.audio : ''
+        if (audioHex) return { audioHex, errorDetail: null }
+
+        lastError = data
+      }
+    }
+  }
+
+  return { audioHex: '', errorDetail: lastError }
+}
+
+function buildModelFallbackList(requested) {
+  const known = [
+    'speech-2.8-hd',
+    'speech-2.8-turbo',
+    'speech-2.6-hd',
+    'speech-2.6-turbo',
+    'speech-02-hd',
+    'speech-02-turbo',
+    'speech-01-hd',
+    'speech-01-turbo',
+  ]
+
+  const trimmed = String(requested || '').trim()
+  if (!trimmed) return known.slice()
+
+  const list = [trimmed, ...known.filter((item) => item !== trimmed)]
+  const seen = new Set()
+  return list.filter((item) => {
+    if (seen.has(item)) return false
+    seen.add(item)
+    return true
+  })
 }
 
 function clampNumber(value, min, max) {
