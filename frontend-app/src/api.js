@@ -26,7 +26,10 @@ export async function sendMiniMaxMessage({
   };
 
   const devApiKey = import.meta.env.VITE_MINIMAX_API_KEY;
-  if (devApiKey) headers['x-api-key'] = devApiKey;
+  if (devApiKey) {
+    headers.authorization = `Bearer ${devApiKey}`;
+    headers['x-api-key'] = devApiKey;
+  }
 
   const response = await fetch(BASE_URL, {
     method: 'POST',

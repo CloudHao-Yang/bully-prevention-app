@@ -37,6 +37,7 @@ export default async function handler(req, res) {
     const upstreamResponse = await fetch('https://api.minimaxi.com/anthropic/v1/messages', {
       method: 'POST',
       headers: {
+        authorization: `Bearer ${apiKey}`,
         'x-api-key': apiKey,
         'anthropic-version': req.headers['anthropic-version'] || '2023-06-01',
         'content-type': 'application/json',
@@ -65,4 +66,3 @@ function readRawBody(req) {
     req.on('error', () => resolve(''));
   });
 }
-
